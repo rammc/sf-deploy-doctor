@@ -96,6 +96,9 @@ def clean_lines(text: str) -> list[str]:
 def redact(text: str) -> str:
     """Usernames and record ids from the org do not belong in an issue."""
     text = EMAIL.sub("<user>", text or "")
+    # Aura descriptors look like URLs (markup://c:myCard). The safe-output filter of the
+    # workflow redacts unknown URL schemes, so write them the way an import does: c/myCard.
+    text = re.sub(r"\bmarkup://([A-Za-z0-9_]+):", r"\1/", text)
     return re.sub(r"\b(?:00[5DQ]|001|003|006|0Af|01p|01q|07M|a[0-9A-Za-z]{2})[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?\b", "<id>", text)
 
 
