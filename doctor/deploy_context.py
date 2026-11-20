@@ -78,7 +78,9 @@ TYPE_SUFFIX = {
     "Dashboard": ".dashboard-meta.xml",
     "StaticResource": ".resource-meta.xml",
 }
-BUNDLE_DIRS = {"LightningComponentBundle": "lwc", "AuraDefinitionBundle": "aura"}
+# Components that are a folder of files. UI bundles hold a whole front-end application
+# (React, Angular, Vue or anything else that builds to static files).
+BUNDLE_DIRS = {"LightningComponentBundle": "lwc", "AuraDefinitionBundle": "aura", "UIBundle": "uiBundles"}
 
 
 # ── input: log text ─────────────────────────────────────────────────────────

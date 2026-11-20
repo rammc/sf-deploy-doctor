@@ -116,6 +116,7 @@ The cheapest failed deployment is the one that never starts. The pre-flight work
 | `new-required-field` | medium | A field becomes required: tests and integrations that create the object without it start to fail |
 | `field-becomes-unique` | medium | An existing field becomes unique: fails if the org holds duplicates |
 | `validation-rule-active` | medium | An active validation rule is added or its condition changes |
+| `ui-reference-not-in-source` | medium | A UI bundle (a React, Angular or other front-end application) names a custom field or object that is not in the repository. The bundle deploys, the query fails at run time |
 | `apex-without-test` | medium | No test class refers to a changed Apex class or trigger |
 | `active-flow-change` | medium | An active flow is modified |
 | `destructive-change` | medium / low | A component is deleted from the source; fields and objects take their data with them |
@@ -280,7 +281,6 @@ python3 doctor/preflight_context.py --base origin/main --head HEAD --out preflig
 
 - **Enrichment:** fetch the full result with `sf project deploy report` when the log is incomplete.
 - **History:** recognise a failure that already occurred in earlier runs and say since when.
-- **UI bundles:** React applications deployed as UI bundles, including the fields their GraphQL queries use.
 - **Skill:** the same doctor as an agent skill for local use.
 
 ## 🤝 Contributing

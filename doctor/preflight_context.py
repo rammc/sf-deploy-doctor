@@ -7,8 +7,9 @@ Salesforce project and lists the things that typically make a deployment fail
 or hurt after it succeeded: references to components that are not in the
 source, deleted components that are still used, field type changes, new
 required fields and validation rules, Apex without a test, profiles, flows,
-and imports of Lightning web components and Aura components that point to
-Apex methods, fields, labels, resources or components the source lacks.
+imports of Lightning web components and Aura components that point to
+Apex methods, fields, labels, resources or components the source lacks, and
+custom fields and objects that a UI bundle (React, Angular) names.
 
 It never talks to an org. A signal therefore says what the source shows, not
 what the org will do; the agent weighs the signals and writes the assessment.
@@ -529,6 +530,52 @@ class Ui:
                     self.apex_import(user, file, number, line, m.group(2))
 
 
+# ── UI bundles: React, Angular and other front-end applications ─────────────
+
+# ns__Name__c: a component of a managed package
+NAMESPACED_NAME = re.compile(r"\b[A-Za-z][A-Za-z0-9]*__[A-Za-z][A-Za-z0-9_]*?__(?:c|r|mdt|e)\b")
+UI_SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".graphql", ".gql", ".html")
+# Not part of what the application sends to the org: dependencies, build output, tests.
+UI_SKIP = re.compile(r"/(?:node_modules|dist|build|coverage|public|__tests__|__mocks__|e2e|tests?)/"
+                     r"|\.(?:test|spec|stories|d)\.[a-z]+$|\.min\.js$")
+
+
+def check_ui_bundle(root: Path, base: str, head: str, comp: dict, files: list[str], signals: Signals) -> None:
+    """Custom fields and objects the application newly names that the source does not define.
+
+    A UI bundle talks to the org at run time (GraphQL, REST), so nothing here fails the
+    deployment: the query fails later, in front of a user.
+    """
+    seen: set[str] = set()
+    for file in comp.get("files", []):
+        if not file.endswith(UI_SOURCE_SUFFIXES) or UI_SKIP.search("/" + file):
+            continue
+        for number, line in added_lines(root, base, head, file):
+            text = strip_script_noise(line)
+            for m in NAMESPACED_NAME.finditer(text):
+                if m.group(0) not in seen:
+                    seen.add(m.group(0))
+                    signals.add("package-reference", "low", "Reference to a component of a managed package",
+                                {**comp, "file": file}, line.strip(),
+                                "The name carries a namespace prefix, so it comes from a managed package.",
+                                f"Make sure the package that provides `{m.group(0)}` is installed in every target org.",
+                                number)
+            for m in CUSTOM_NAME.finditer(NAMESPACED_NAME.sub("", text)):
+                name = m.group(0)
+                if m.group(2) == "r" or name in seen:  # relationship names are not component names
+                    continue
+                seen.add(name)
+                if not exists_in_source(files, name):
+                    signals.add("ui-reference-not-in-source", "medium",
+                                "A front-end application uses a field or object that is not in the repository",
+                                {**comp, "file": file}, line.strip(),
+                                f"`{name}` is not defined anywhere in the source. The bundle deploys regardless, but a "
+                                "query or request that names it fails at run time in an org that does not have it, "
+                                "or for a user who may not see it.",
+                                f"Add `{name}` to this change, or confirm that it exists in every target org and that "
+                                "the users of the application have access to it.", number)
+
+
 IMPORT_LABEL = {
     "resourceUrl": "static resource",
     "contentAssetUrl": "content asset",
@@ -542,7 +589,7 @@ def merge_same_reference(items: list[dict]) -> list[dict]:
     merged: dict[tuple, dict] = {}
     out = []
     for item in items:
-        if item["rule"] not in ("reference-not-in-source", "package-reference"):
+        if item["rule"] not in ("reference-not-in-source", "package-reference", "ui-reference-not-in-source"):
             out.append(item)
             continue
         key = (item["rule"], item["why"])
@@ -565,6 +612,9 @@ def build(root: Path, base: str, head: str) -> dict:
     for comp in comps:
         if comp["change"] == "deleted":
             check_deleted(root, head, comp, files, signals)
+            continue
+        if comp["type"] == "UIBundle":
+            check_ui_bundle(root, base, head, comp, files, signals)
             continue
         if comp["type"] in BUNDLE_DIRS:
             ui.check_bundle(comp)
@@ -619,6 +669,9 @@ def build(root: Path, base: str, head: str) -> dict:
                         "low: worth a look.",
             "reference-not-in-source": "The name is not defined anywhere in the repository. It may still exist in "
                                        "the org (created by hand, standard feature, unmanaged leftovers).",
+            "ui-reference-not-in-source": "A UI bundle (React, Angular or another front-end application) names a "
+                                          "custom field or object that the repository does not define. This is a "
+                                          "run-time risk, not a deployment failure.",
             "apex-method-not-exposed": "A Lightning component imports an Apex method that the class in the source "
                                        "does not declare, or declares without @AuraEnabled. An org reports such "
                                        "errors only in part, so a failed deployment rarely shows all of them.",

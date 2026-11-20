@@ -323,5 +323,62 @@ class Lightning(unittest.TestCase):
         self.assertEqual(names, {"lost", "NoController"})
 
 
+UI = f"{D}/uiBundles/showroom"
+
+
+class UiBundle(unittest.TestCase):
+    """React, Angular and other front-end applications deployed as UI bundles."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        git(self.repo, "init", "-q", "-b", "main")
+        write(self.repo, f"{D}/objects/Asset/fields/Engine__c.field-meta.xml", field())
+        write(self.repo, f"{D}/objects/Visit__c/Visit__c.object-meta.xml", "<CustomObject/>\n")
+        write(self.repo, f"{UI}/showroom.uibundle-meta.xml", "<UIBundle/>\n")
+        write(self.repo, f"{UI}/src/api/inventory.ts", "export const Q = `query { uiapi { query { Asset { edges { node { Id } } } } } }`;\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "base")
+        git(self.repo, "switch", "-q", "-c", "change")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_preflight(self):
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        return pf.build(self.repo, "main", "change")
+
+    def test_bundle_is_one_component(self):
+        self.assertEqual(pf.component_of(f"{UI}/src/api/inventory.ts"), {"type": "UIBundle", "name": "showroom"})
+        write(self.repo, f"{UI}/src/api/inventory.ts", "export const Q = `query { Asset { Engine__c { value } } }`;\n")
+        write(self.repo, f"{UI}/src/pages/Home.tsx", "export const Home = () => <p>Visit__c</p>;\n")
+        ctx = self.run_preflight()
+        self.assertEqual(ctx["summary"]["byType"], {"UIBundle": 1})
+        self.assertEqual(ctx["components"][0]["change"], "modified")
+        self.assertEqual(ctx["signals"], [])
+
+    def test_field_the_source_does_not_define(self):
+        write(self.repo, f"{UI}/src/api/inventory.ts",
+              "export const Q = `query { Asset { Engine__c { value } Colour__c { value } Owner__r { Name { value } } } }`;\n"
+              "// Legacy__c was removed\n")
+        write(self.repo, f"{UI}/src/app/visit.component.ts", "const fields = ['Colour__c', 'pkg__Score__c'];\n")
+        ctx = self.run_preflight()
+        found = [s for s in ctx["signals"] if s["rule"] == "ui-reference-not-in-source"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("`Colour__c`", found[0]["why"])
+        self.assertEqual((found[0]["severity"], found[0]["line"]), ("medium", 1))
+        self.assertTrue(found[0]["file"].endswith("src/api/inventory.ts"))
+        self.assertEqual([s["rule"] for s in ctx["signals"] if s["severity"] == "low"], ["package-reference"])
+
+    def test_tests_build_output_and_dependencies_are_ignored(self):
+        for rel in ("src/api/inventory.test.ts", "src/__tests__/a.ts", "dist/assets/app.js",
+                    "node_modules/x/index.js", "e2e/flow.spec.ts", "src/types/schema.d.ts", "package.json"):
+            write(self.repo, f"{UI}/{rel}", "const f = 'Nowhere__c';\n")
+        ctx = self.run_preflight()
+        self.assertEqual(ctx["signals"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
