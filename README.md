@@ -10,7 +10,7 @@ A second workflow, the **pre-flight**, looks at a pull request before anything i
 
 Both run as [GitHub Agentic Workflows](https://github.com/github/gh-aw) in your own repository, are read-only by design, and install with one command each.
 
-> **Status: early.** The doctor has diagnosed its first real validation failures in a test repository; see the [example report](docs/example-report.md). It has not been used on a production pipeline yet. Expect changes.
+> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md)). They have not been used on a production pipeline yet. Expect changes.
 
 ## 😵 The problem
 
@@ -122,7 +122,32 @@ The cheapest failed deployment is the one that never starts. The pre-flight work
 
 The signals come from the source alone, so the pre-flight needs no org and no credentials. It says what the diff shows, not what an org will do, and it never approves or blocks a pull request. A pull request without signals gets no comment at all.
 
-On the sample change from the top of this page, the pre-flight reports all three missing references before the validation runs, plus the reference to a missing Apex class that the org did not report.
+This is the unedited comment on the sample change from the top of this page, written before any validation ran. It names all three missing references and a fourth one, the Apex class, that the org itself never reported:
+
+> **Verdict: Likely to fail.** All three new components reference names — a field, an object, another field, and an Apex class — that are not defined anywhere in this repository. They all follow this PR's own `Doctor_` / `Doctor` naming, which suggests pieces of the change were left out rather than that these are long-standing org components.
+>
+> `3 components added (1 ApexClass, 1 CustomField, 1 PermissionSet), 0 modified, 0 deleted` — `4 high, 1 medium, 0 low signals`
+>
+> ### Likely to fail
+>
+> - `force-app/main/default/classes/DoctorBrokenService.cls:3` queries `Doctor_Missing_Field__c` on `Account`, but no `CustomField` named `Doctor_Missing_Field__c` exists in the source. If it is not already present in the target org, the SOQL compile step fails the deployment.
+> - `force-app/main/default/objects/Account/fields/Doctor_Lookup__c.field-meta.xml:2` sets `<referenceTo>Doctor_Missing_Object__c</referenceTo>`, but no object by that name is defined in the source. A lookup field cannot deploy to a target object that does not exist.
+> - `force-app/main/default/permissionsets/Doctor_Access.permissionset-meta.xml:3` grants access to `Account.Doctor_Other_Missing__c`, a third field name distinct from `Doctor_Missing_Field__c` above, and it is also not defined anywhere in the source.
+> - `force-app/main/default/permissionsets/Doctor_Access.permissionset-meta.xml:4` grants class access to `DoctorNoSuchClass`, which is a different name from the `DoctorBrokenService` class added in this same PR and is not defined anywhere in the source.
+>
+> Fix: either add the missing `Doctor_Missing_Field__c` field, `Doctor_Missing_Object__c` object and `DoctorNoSuchClass` class (or correct what look like typos against the components actually in this PR), or confirm each one already exists in every target org before deploying.
+>
+> ### Risks after deployment
+>
+> - No test class in the source refers to `DoctorBrokenService` (`force-app/main/default/classes/DoctorBrokenService.cls`). If this org requires 75% coverage or uses `RunSpecifiedTests`, this class will not count toward coverage on its own, independent of the missing-reference issues above.
+>
+> ### Check before merging
+>
+> - Does `Account.Doctor_Missing_Field__c` already exist in the target org?
+> - Does the object `Doctor_Missing_Object__c` already exist in the target org?
+> - Does `Account.Doctor_Other_Missing__c` already exist in the target org?
+> - Does the Apex class `DoctorNoSuchClass` already exist in the target org?
+> - Is there a test class elsewhere (not in this PR) that already covers `DoctorBrokenService`?
 
 ## 🚀 Quick start
 
@@ -155,6 +180,8 @@ Choose the AI engine with `engine:` (Copilot is the gh-aw default; `claude` and 
 gh aw compile
 git add .github/workflows && git commit -m "Add Deploy Doctor"
 ```
+
+Merge this to your default branch before you try it: gh-aw reads the workflow source from the default branch, so a workflow that only exists on a pull request branch does not run yet.
 
 From now on every failed run of the listed workflows gets a diagnosis. To examine an older run by hand, start the workflow with its run id:
 
