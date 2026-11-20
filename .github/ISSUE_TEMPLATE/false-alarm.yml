@@ -1,0 +1,35 @@
+name: False alarm or missed risk in the pre-flight
+description: A signal that should not have been raised, or a risk the pre-flight did not see.
+labels: [pre-flight]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What happened
+      options:
+        - A signal was raised that is wrong
+        - A risk was not reported
+    validations:
+      required: true
+  - type: input
+    id: rule
+    attributes:
+      label: Signal
+      description: The rule name from the comment or from preflight.json, for example reference-not-in-source.
+  - type: textarea
+    id: diff
+    attributes:
+      label: Smallest diff that shows it
+      description: The changed lines and the file they are in. Add the files they refer to if they matter.
+      render: diff
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: input
+    id: version
+    attributes:
+      label: Deploy Doctor version
+      placeholder: v0.2.0

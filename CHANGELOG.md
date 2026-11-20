@@ -2,6 +2,15 @@
 
 Each release is a tag. The workflows of a release check out the context builders at the same tag, so an installed workflow keeps running the scripts it was written for until you update it.
 
+## 0.2.0
+
+Installation for everyone.
+
+- **One command:** `gh aw add rammc/sf-deploy-doctor@v0.2.0` installs both workflows and a setup script through a package manifest (`aw.yml`).
+- **Setup script:** finds the workflows that deploy to Salesforce, the branch patterns of the repository and the package directories, and writes them into the two workflow files. No hand editing.
+- README: new quick start, engine table, a way to try the doctor on a run that already failed, troubleshooting.
+- `CONTRIBUTING.md`, `SECURITY.md` and issue templates for unknown errors and false alarms.
+
 ## 0.1.0
 
 First tagged release.

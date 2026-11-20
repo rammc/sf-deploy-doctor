@@ -13,7 +13,7 @@ description: |
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    # Adapt: the folders that hold your Salesforce metadata.
+    # The folders that hold your Salesforce metadata. The setup script reads them from sfdx-project.json.
     paths:
       - "force-app/**"
   permissions:
@@ -31,7 +31,7 @@ on:
       uses: actions/checkout@v7
       with:
         repository: rammc/sf-deploy-doctor
-        ref: v0.1.0
+        ref: v0.2.0
         path: .deploy-doctor/tool
         persist-credentials: false
     - name: Collect signals from the diff
@@ -74,7 +74,7 @@ steps:
     uses: actions/checkout@v7
     with:
       repository: rammc/sf-deploy-doctor
-      ref: v0.1.0
+      ref: v0.2.0
       path: .deploy-doctor/tool
       persist-credentials: false
   - name: Build the pre-flight context

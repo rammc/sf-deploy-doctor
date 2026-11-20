@@ -159,53 +159,80 @@ A harmless pull request in the same test produced no signal, no agent run and no
 
 ## 🚀 Quick start
 
-**Prerequisites:** a repository whose Salesforce deployments or validations run in GitHub Actions, and the [gh-aw](https://github.com/github/gh-aw) extension for the GitHub CLI.
+**Prerequisites:** a repository whose Salesforce deployments or validations run in GitHub Actions, the [GitHub CLI](https://cli.github.com/) and Python 3.9 or newer. You do not clone or fork this repository; you install its workflows into yours.
+
+Run these in the root of your Salesforce repository:
 
 ```bash
+# 1. Install both workflows and the setup script
 gh extension install github/gh-aw
-gh aw add rammc/sf-deploy-doctor/deploy-doctor@v0.1.0      # diagnose failed deployments
-gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.1.0   # assess pull requests before deployment
-```
+gh aw add rammc/sf-deploy-doctor@v0.2.0
 
-Each command adds one workflow file under `.github/workflows`. The pre-flight works as it is if your metadata lives in `force-app`; otherwise adapt `paths` in its frontmatter. For the doctor, open `deploy-doctor.md` and adapt the trigger:
+# 2. Let the setup script find your deploy workflows, branches and package directories
+python3 .github/aw/deploy-doctor/setup.py            # shows what it found
+python3 .github/aw/deploy-doctor/setup.py --write    # writes it into the two workflow files
 
-```yaml
-on:
-  workflow_run:
-    # the names of your workflows that deploy to or validate against an org
-    workflows: ["Deploy", "Validate", "PR Validation"]
-    types: [completed]
-    # the branches whose runs the doctor looks at
-    branches:
-      - main
-      - develop
-      - "feature/**"
-```
-
-Choose the AI engine with `engine:` (Copilot is the gh-aw default; `claude` and `codex` are supported) and add the matching secret as described in the [gh-aw documentation](https://github.github.com/gh-aw/). Then compile and commit:
-
-```bash
+# 3. Compile, add the secret of your AI engine, commit
 gh aw compile
-git add .github/workflows && git commit -m "Add Deploy Doctor"
+gh aw secrets bootstrap
+git add .gitattributes .github && git commit -m "Add Deploy Doctor"
 ```
 
-Merge this to your default branch before you try it: gh-aw reads the workflow source from the default branch, so a workflow that only exists on a pull request branch does not run yet.
+Merge the commit to your default branch. From then on every failed run of your deploy workflows gets a diagnosis, and every pull request that carries a risk gets a pre-flight comment.
 
-From now on every failed run of the listed workflows gets a diagnosis. To examine an older run by hand, start the workflow with its run id:
+<details>
+<summary><b>What each step does</b></summary>
+
+1. `gh aw add` copies `deploy-doctor.md` and `deploy-preflight.md` to `.github/workflows`, compiles them to `.lock.yml` files and puts the setup script under `.github/aw/deploy-doctor`. To install only one of the two, name it: `gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.2.0`.
+2. The setup script reads `.github/workflows` and `sfdx-project.json`. It looks for workflows that run `sf project deploy`, the older `sfdx force:source:deploy`, sfp or a deploy action, also behind reusable workflows, local actions and shell scripts. It writes their names and the branch patterns of your repository into the trigger of the doctor, and your package directories into the path filter of the pre-flight. It changes nothing else and sends nothing anywhere. If it misses a workflow, name it yourself: `--workflows "Deploy,PR Validation" --branches "main,feature/**"`.
+3. `gh aw secrets bootstrap` lists the secrets the workflows need and asks for the missing ones.
+
+</details>
+
+### Choose the AI engine
+
+The workflows run on any engine gh-aw supports. Copilot is the default; pass `--engine` to `gh aw add` for another one, or set `engine:` in the frontmatter of both workflow files and compile again.
+
+| Engine | Install with | Secret |
+| --- | --- | --- |
+| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.2.0` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
+| Claude | `gh aw add rammc/sf-deploy-doctor@v0.2.0 --engine claude` | `ANTHROPIC_API_KEY` |
+| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.2.0 --engine codex` | shown by `gh aw secrets bootstrap` |
+
+The examples on this page were written with Claude. With an engine other than Copilot, `gh aw add` prints a notice about a new restricted secret; it tells you that the workflow will read that secret, which is what you asked for.
+
+### Try it on a run that already failed
+
+You do not have to wait for the next red deployment. Once the workflows are on your default branch, point the doctor at an old failure:
 
 ```bash
+gh run list --workflow "<your deploy workflow>" --status failure --limit 5   # pick a run id
 gh workflow run deploy-doctor.lock.yml -f run_id=1234567890
 ```
 
+A few minutes later the diagnosis is on the pull request of that run, or in a new issue if the run had none.
+
 ### Versions and updates
 
-The commands above install a tagged release. The installed workflow checks out the context builders at the same tag, so nothing in your pipeline changes until you decide to update:
+The install command names a tagged release. The installed workflows check out the context builders at the same tag, so nothing in your pipeline changes until you decide to update:
 
 ```bash
 gh aw update            # move the installed workflows to the latest release
 ```
 
-`gh aw update` merges the new version with your local changes, such as the adapted trigger, and recompiles. What changed between releases is listed in the [changelog](CHANGELOG.md).
+`gh aw update` merges the new version with your local changes, such as the trigger the setup script wrote, and recompiles. What changed between releases is listed in the [changelog](CHANGELOG.md).
+
+### If something does not work
+
+| What you see | Why | What to do |
+| --- | --- | --- |
+| Nothing happens after a failed deployment | The workflows are not on the default branch yet. gh-aw reads the workflow from there, and `workflow_run` only fires for workflows on the default branch | Merge the commit that adds them |
+| Still nothing | The name of your deploy workflow or the branch of the run is not in the trigger | Compare `workflows:` and `branches:` in `deploy-doctor.md` with the failed run, run the setup script again or pass `--workflows` and `--branches`, then `gh aw compile` |
+| `CTR-021 ... workflow_run lacks positive branch scope` on compile | gh-aw does not accept a bare wildcard such as `**` for the branches | Use names or scoped patterns: `main`, `feature/**`, `PROJ-*` |
+| The doctor reports that test details are missing | In CI the Salesforce CLI prints how many tests failed, not which | Add the report step under [Works with your pipeline](#-works-with-your-pipeline) |
+| The run fails in the agent job with an authentication error | The secret of the engine is missing or expired | `gh aw secrets bootstrap` |
+| No pre-flight comment on a pull request | The diff carries no signal, or it touches no file under the path filter. Both are intended: no finding, no comment | Check `paths:` in `deploy-preflight.md` if your metadata lives elsewhere |
+| The run fails with `Failed to resolve runtime import path` | The workflow exists only on the pull request branch | Merge it to the default branch first |
 
 ## 🧩 Works with your pipeline
 
@@ -285,7 +312,7 @@ python3 doctor/preflight_context.py --base origin/main --head HEAD --out preflig
 
 ## 🤝 Contributing
 
-The most valuable contribution is an error the doctor does not know yet. Add one entry to `doctor/catalog.json` (pattern, category, title, advice), one line to the test `test_known_messages`, and open a pull request.
+The most valuable contribution is an error the doctor does not know yet. Add one entry to `doctor/catalog.json` (pattern, category, title, advice), one line to the test `test_known_messages`, and open a pull request. The details, and how to report a false alarm of the pre-flight, are in [CONTRIBUTING.md](CONTRIBUTING.md). Security reports go through [SECURITY.md](SECURITY.md).
 
 ```bash
 python3 -m unittest discover -s tests

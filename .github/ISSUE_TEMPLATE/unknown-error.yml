@@ -1,0 +1,27 @@
+name: Unknown deployment error
+description: The doctor did not recognise an error message, or classified it wrongly.
+labels: [catalog]
+body:
+  - type: textarea
+    id: message
+    attributes:
+      label: Error message
+      description: Exactly as the org returned it. Remove usernames, org ids and record ids.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: metadata
+    attributes:
+      label: Metadata type
+      description: What was being deployed, for example ApexClass, Flow, LightningComponentBundle.
+  - type: textarea
+    id: cause
+    attributes:
+      label: What the cause turned out to be
+      description: If you know it. This becomes the advice in the catalog.
+  - type: input
+    id: version
+    attributes:
+      label: Deploy Doctor version
+      placeholder: v0.2.0

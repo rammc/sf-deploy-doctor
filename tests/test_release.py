@@ -18,7 +18,7 @@ class Release(unittest.TestCase):
             self.assertEqual(set(refs), {f"v{VERSION}"}, path.name)
 
     def test_readme_installs_this_version(self):
-        pinned = re.findall(r"sf-deploy-doctor/deploy-(?:doctor|preflight)@(\S+)", (ROOT / "README.md").read_text())
+        pinned = re.findall(r"rammc/sf-deploy-doctor(?:/[\w-]+)?@(v[\w.]+)", (ROOT / "README.md").read_text())
         self.assertTrue(pinned)
         self.assertEqual(set(pinned), {f"v{VERSION}"})
 

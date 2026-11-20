@@ -1,0 +1,9 @@
+name: Deploy Doctor
+emoji: 🩺
+description: Diagnoses failed Salesforce deployments and assesses pull requests before deployment. Read-only, no org access.
+includes:
+  - workflows/deploy-doctor.md
+  - workflows/deploy-preflight.md
+resources:
+  - source: scripts/setup.py
+    destination: .github/aw/deploy-doctor/setup.py
