@@ -126,8 +126,80 @@ class ParseResultJson(unittest.TestCase):
 
     def test_result_embedded_in_a_log_is_found(self):
         text = "some output\n" + (FIXTURES / "compile.json").read_text() + "\nmore output\n"
-        self.assertEqual(dc.find_result_json(text)["result"]["status"], "Failed")
-        self.assertIsNone(dc.find_result_json("no json here\n{\n \"a\": 1\n}\n"))
+        parsed = dc.parse_text(text)
+        self.assertEqual((parsed["source"], parsed["deployment"]["status"]), ("log-json", "Failed"))
+        self.assertTrue(parsed["componentFailures"])
+        self.assertEqual(dc.parse_text("no json here\n{\n \"a\": 1\n}\n")["source"], "log")
+
+
+class RealPipelines(unittest.TestCase):
+    """A job that deploys several times and runs the Apex tests as a step of its own.
+
+    The fixture has the shape of a real pipeline log; names and ids are made up.
+    """
+
+    def setUp(self):
+        self.parsed = dc.parse_text((FIXTURES / "multi-step-ci-job.log").read_text())
+        self.ctx = dc.enrich(self.parsed, None, None, None, CATALOG)
+
+    def test_the_failed_deployments_count_not_the_first_one(self):
+        dep = self.ctx["deployment"]
+        self.assertEqual(dep["status"], "Failed")
+        self.assertEqual(dep["resultsInLog"], {"total": 3, "failed": 2})
+
+    def test_component_error_listed_only_under_files(self):
+        failures = self.ctx["componentFailures"]
+        self.assertEqual([(f["type"], f["name"]) for f in failures], [("EmailTemplate", "Doctor_Templates/Doctor_Reminder")])
+        self.assertEqual((failures[0]["patternId"], failures[0]["refs"]), ("missing-folder", {"name": "Doctor_Templates"}))
+
+    def test_deployment_that_fails_without_naming_a_component(self):
+        other = self.ctx["otherErrors"]
+        self.assertEqual(len(other), 1)
+        self.assertEqual((other[0]["patternId"], other[0]["category"]), ("deploy-row-lock", "org-state"))
+
+    def test_apex_tests_that_run_as_their_own_step(self):
+        tests = self.ctx["testFailures"]
+        self.assertEqual(sorted(t["test"] for t in tests),
+                         ["DoctorPriceServiceTest.appliesDiscount", "DoctorPriceServiceTest.rejectsNegativePrice",
+                          "DoctorQuoteServiceTest.createsQuoteLine"])
+        self.assertEqual({t["patternId"] for t in tests}, {"test-row-lock"})
+        self.assertEqual(tests[0]["involved"][0]["name"], "DoctorTestData")
+        self.assertEqual(self.ctx["testRuns"], {"runs": 1, "passing": 3, "failing": 3, "total": 6})
+        self.assertEqual(self.ctx["totals"]["testFailures"], 3)
+        self.assertEqual(self.ctx["detailsMissing"], [])
+
+    def test_every_failed_step_is_kept_as_an_excerpt(self):
+        steps = self.ctx["failedSteps"]
+        self.assertEqual([s["command"] for s in steps],
+                         ["sf project deploy start --source-dir templates --json",
+                          "sf project deploy start --source-dir force-app --json",
+                          "sf apex run test --result-format json --code-coverage --wait 60",
+                          "./ci/report.sh"])
+        report = steps[3]
+        self.assertEqual(report["error"], "Process completed with exit code 4.")
+        # the echoed script and the environment are not output, warnings are counted
+        self.assertEqual(report["lastLines"][0], "Collecting coverage for <user>")
+        self.assertEqual(report["warnings"], 1)
+        self.assertFalse(any("Warning" in l or "shell:" in l for l in report["lastLines"] + report["errorLines"]))
+        self.assertEqual([k["patternId"] for k in report["knownPatterns"]], ["apex-test-wait-exceeded"])
+        self.assertFalse(any("_raw" in s for s in steps))
+
+    def test_echoed_script_is_not_output(self):
+        log = ("2026-11-20T10:00:00.0000000Z ##[group]Run ./check.sh\n"
+               "2026-11-20T10:00:00.0000000Z \x1b[36;1mcommand -v jq || echo '::error::jq utility required but absent'\x1b[0m\n"
+               "2026-11-20T10:00:00.0000000Z ##[endgroup]\n"
+               "2026-11-20T10:00:01.0000000Z scanner: quality gate failed\n"
+               "2026-11-20T10:00:01.0000000Z ##[error]Process completed with exit code 2.\n")
+        parsed = dc.parse_text(log)
+        self.assertFalse(any("jq utility" in e for e in parsed["otherErrors"]))
+        self.assertEqual(parsed["failedSteps"][0]["lastLines"], ["scanner: quality gate failed"])
+
+    def test_human_readable_result_of_a_failed_step_is_read_too(self):
+        human = (FIXTURES / "compile-ci-job.log").read_text()
+        ok = (FIXTURES / "multi-step-ci-job.log").read_text().split("##[group]Run sf project deploy start --source-dir templates")[0]
+        parsed = dc.parse_text(ok.rsplit("\n", 1)[0] + "\n" + human)
+        self.assertEqual(parsed["source"], "log-json")
+        self.assertTrue(parsed["componentFailures"], "the table of the failed step is lost next to JSON of another step")
 
 
 class Classification(unittest.TestCase):
@@ -153,6 +225,13 @@ class Classification(unittest.TestCase):
             "insufficient access rights on cross-reference id: 0Q0000000000001": "insufficient-access",
             "The version of the flow you're updating is active and can't be overwritten.": "active-flow",
             "socket hang up": "network-or-platform",
+            # messages from a real pipeline with email templates and a separate test step
+            "Cannot find folder:ServiceEmailTemplates": "missing-folder",
+            "The emailTemplate OrderEmails/Order_Cancelled can't be found. Use the following format": "missing-email-template",
+            "To create email template folders, enable Folders and Enhanced Sharing.": "email-template-folders-disabled",
+            "UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record": "deploy-row-lock",
+            "System.DmlException: Update failed. First exception on row 0; first error: FIELD_INTEGRITY_EXCEPTION, Can't change quote owner. Enter an active user: []": "test-field-integrity",
+            "Run with --synchronous or increase --wait timeout to wait for results.": "apex-test-wait-exceeded",
             # Lightning web components: messages as an org returned them on a check-only deployment
             "Unable to find Apex action class referenced as 'NoSuchClassXyz'.": "lwc-missing-apex-class",
             "Unable to find Apex action method referenced as 'DoctorProbe.hidden'.": "lwc-missing-apex-method",

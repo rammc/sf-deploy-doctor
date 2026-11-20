@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+SCRIPT_ECHO = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?(?:\ufeff)?(?:\d{4}-\d{2}-\d{2}T[\d:.]+Z )?\x1b\[36;1m")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # `gh run view --log` prefixes "job<TAB>step<TAB>"; raw job logs start with a timestamp.
 TIMESTAMP = re.compile(r"^(?:﻿)?\d{4}-\d{2}-\d{2}T[\d:.]+Z ?")
@@ -88,6 +89,10 @@ BUNDLE_DIRS = {"LightningComponentBundle": "lwc", "AuraDefinitionBundle": "aura"
 def clean_lines(text: str) -> list[str]:
     out = []
     for raw in text.splitlines():
+        # GitHub echoes the script of a step in bold cyan before running it. That is the
+        # command, not its output: `echo "::error::..."` in a script is not an error.
+        if SCRIPT_ECHO.search(raw):
+            continue
         line = ANSI.sub("", raw)
         if line.count("\t") >= 2:  # gh run view --log: job \t step \t message
             line = line.split("\t", 2)[2]
@@ -180,7 +185,10 @@ def split_position(problem: str) -> tuple[str, int | None, int | None]:
 
 
 def parse_log(text: str) -> dict:
-    lines = clean_lines(text)
+    return parse_log_lines(clean_lines(text))
+
+
+def parse_log_lines(lines: list[str]) -> dict:
     out = {"deployment": {}, "componentFailures": [], "testFailures": [], "coverageWarnings": [], "otherErrors": []}
     dep = out["deployment"]
     joined = "\n".join(lines)
@@ -313,31 +321,160 @@ def parse_result_json(data: dict) -> dict:
         })
     for w in as_list(rt.get("codeCoverageWarnings")):
         out["coverageWarnings"].append({"name": w.get("name") or "(org-wide)", "message": w.get("message", "")})
-    if data.get("message") and not (out["componentFailures"] or out["testFailures"]):
+    if not out["componentFailures"]:
+        # The CLI also lists each file with its state; some results carry the errors only there.
+        for f in as_list(result.get("files")):
+            if isinstance(f, dict) and f.get("state") == "Failed" and f.get("error"):
+                out["componentFailures"].append({
+                    "type": f.get("type", ""), "name": f.get("fullName", ""), "problem": f.get("error", ""),
+                    "line": int(f["lineNumber"]) if str(f.get("lineNumber", "")).isdigit() else None,
+                    "column": int(f["columnNumber"]) if str(f.get("columnNumber", "")).isdigit() else None,
+                })
+    # A deployment can fail as a whole, without naming a component (a locked record, a timeout).
+    if result.get("errorMessage"):
+        out["otherErrors"].append(str(result["errorMessage"])[:MAX_EXCERPT])
+    if data.get("message") and not (out["componentFailures"] or out["testFailures"] or out["otherErrors"]):
         out["otherErrors"].append(str(data.get("message"))[:MAX_EXCERPT])
     return out
 
 
-def find_result_json(text: str) -> dict | None:
-    """A log may contain the `--json` result of the deploy command."""
-    for m in re.finditer(r"^\{\s*$", text, re.M):
-        depth, end = 0, None
-        for j in range(m.start(), len(text)):
-            if text[j] == "{":
-                depth += 1
-            elif text[j] == "}":
-                depth -= 1
-                if depth == 0:
-                    end = j + 1
-                    break
-        if end:
+def parse_test_json(data: dict) -> dict:
+    """Result of `sf apex run test --result-format json`: tests that run as their own step."""
+    result = data.get("result") or data
+    summary = result.get("summary") or {}
+
+    def number(key: str) -> int:
+        return int(summary.get(key) or 0) if str(summary.get(key) or 0).isdigit() else 0
+
+    out = {"deployment": {}, "componentFailures": [], "testFailures": [], "coverageWarnings": [], "otherErrors": [],
+           "tests": {"passing": number("passing"), "failing": number("failing"), "total": number("testsRan"),
+                     "outcome": summary.get("outcome")}}
+    for t in as_list(result.get("tests")):
+        if isinstance(t, dict) and str(t.get("Outcome", "")).lower() in ("fail", "compilefail"):
+            name = t.get("FullName") or f"{(t.get('ApexClass') or {}).get('Name', '')}.{t.get('MethodName', '')}"
+            out["testFailures"].append({"test": name, "message": t.get("Message") or "",
+                                        "stackTrace": t.get("StackTrace") or ""})
+    return out
+
+
+def json_documents(lines: list[str]):
+    """Pretty-printed JSON objects in a log: from a line that is `{` to the next line that is `}`."""
+    start = None
+    for i, line in enumerate(lines):
+        if start is None:
+            if line == "{":
+                start = i
+        elif line == "}":
             try:
-                data = json.loads(text[m.start():end])
+                data = json.loads("\n".join(lines[start:i + 1]))
             except ValueError:
-                continue
-            if isinstance(data, dict) and isinstance(data.get("result"), dict) and "details" in data["result"]:
-                return data
-    return None
+                data = None
+            if isinstance(data, dict):
+                yield data
+            start = None
+
+
+def is_deploy_result(data: dict) -> bool:
+    result = data.get("result")
+    return isinstance(result, dict) and ("details" in result or "numberComponentErrors" in result)
+
+
+def is_test_result(data: dict) -> bool:
+    result = data.get("result")
+    return isinstance(result, dict) and isinstance(result.get("summary"), dict) and "outcome" in result["summary"]
+
+
+def parse_text(text: str) -> dict:
+    """Everything a log says about deployments and test runs.
+
+    A job can deploy several times and run the tests as a separate step, so every
+    result in the log counts, not only the first one.
+    """
+    lines = clean_lines(text)
+    deploys, tests = [], []
+    for data in json_documents(lines):
+        if is_deploy_result(data):
+            deploys.append(parse_result_json(data))
+        elif is_test_result(data):
+            tests.append(parse_test_json(data))
+    if deploys or tests:
+        failed = [d for d in deploys if d["deployment"].get("status") not in ("Succeeded", "SucceededPartial")
+                  or d["componentFailures"] or d["testFailures"] or d["otherErrors"]]
+        out = {"deployment": dict((failed or deploys or [{"deployment": {}}])[0]["deployment"]),
+               "componentFailures": [], "testFailures": [], "coverageWarnings": [], "otherErrors": []}
+        for part in failed + tests:
+            for key in ("componentFailures", "testFailures", "coverageWarnings", "otherErrors"):
+                for item in part[key]:
+                    if item not in out[key]:
+                        out[key].append(item)
+        if deploys:
+            out["deployment"]["resultsInLog"] = {"total": len(deploys), "failed": len(failed)}
+        if tests:
+            sums = [t["tests"] for t in tests]
+            out["testRuns"] = {"runs": len(tests), "passing": sum(x["passing"] for x in sums),
+                               "failing": sum(x["failing"] for x in sums), "total": sum(x["total"] for x in sums)}
+            if out["testRuns"]["failing"]:
+                current = out["deployment"].get("tests") or {"passing": 0, "failing": 0, "total": 0}
+                out["deployment"]["tests"] = {k: int(current.get(k) or 0) + out["testRuns"][k]
+                                              for k in ("passing", "failing", "total")}
+        out["source"] = "log-json"
+    else:
+        out = parse_log_lines(lines)
+        out["source"] = "log"
+    out["failedSteps"] = failed_steps(lines)
+    # A failed step may print the human-readable result of a deployment while other
+    # steps printed JSON. Read it too and keep what the JSON did not already say.
+    for step in out["failedSteps"]:
+        raw = step.pop("_raw")
+        if out["source"] == "log" or len(raw) > 20000:
+            continue
+        extra = parse_log_lines(raw)
+        known = {(f["type"], f["name"]) for f in out["componentFailures"]}
+        out["componentFailures"] += [f for f in extra["componentFailures"] if (f["type"], f["name"]) not in known]
+        tests = {t["test"] for t in out["testFailures"]}
+        out["testFailures"] += [t for t in extra["testFailures"] if t["test"] not in tests]
+        seen = {w["message"] for w in out["coverageWarnings"]}
+        out["coverageWarnings"] += [w for w in extra["coverageWarnings"] if w["message"] not in seen]
+    return out
+
+
+ERRORISH = re.compile(r"(?i)\b(error|errors|failed|failure|exception|not found|timed? ?out|timeout|denied|invalid|"
+                      r"cannot|can't|unable|refused|unauthori[sz]ed|forbidden|missing|exit code)\b")
+MAX_FAILED_STEPS = 6
+
+
+def failed_steps(lines: list[str]) -> list[dict]:
+    """What each failed step printed, for failures no parser above understands.
+
+    GitHub marks the end of a failed step with `##[error]` and its beginning with
+    `##[group]Run <command>`. Kept per step: the command, the lines that look like
+    an error, and the last lines before it stopped. Warnings are counted, not kept:
+    a deployment prints hundreds of them and they bury the one line that matters.
+    """
+    steps, last_end = [], 0
+    for i, line in enumerate(lines):
+        if "##[error]" not in line:
+            continue
+        error = line.split("##[error]", 1)[1].strip()
+        if steps and i - last_end <= 1:  # a second ##[error] line of the same step
+            steps[-1]["error"] += " | " + error
+            last_end = i + 1
+            continue
+        start = i
+        while start > last_end and not lines[start].startswith("##[group]Run "):
+            start -= 1
+        command = lines[start][len("##[group]Run "):].strip() if lines[start].startswith("##[group]Run ") else None
+        # GitHub echoes the script and the environment first; the output starts after ##[endgroup].
+        first = next((k + 1 for k in range(start, i) if lines[k].startswith("##[endgroup]")), start + 1)
+        raw = lines[first:i]
+        body = [l.strip() for l in raw if l.strip() and not l.startswith("##[")]
+        warnings = [l for l in body if re.match(r"(?:›\s*)?Warning:", l)]
+        kept = [l for l in body if not re.match(r"(?:›\s*)?Warning:", l)]
+        signals = list(dict.fromkeys(l for l in kept if ERRORISH.search(l) and len(l) < 600))
+        steps.append({"command": command, "error": error, "outputLines": len(body), "warnings": len(warnings),
+                      "errorLines": signals[-25:], "lastLines": kept[-20:], "_raw": raw})
+        last_end = i + 1
+    return steps[:MAX_FAILED_STEPS]
 
 
 # ── repository ──────────────────────────────────────────────────────────────
@@ -475,6 +612,18 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
         e = redact(e)
         classified_other.append({"text": e, **classify(e, catalog)})
     parsed["otherErrors"] = classified_other
+    for step in parsed.get("failedSteps", []):
+        step["command"] = redact(step["command"] or "")[:300] or None
+        step["error"] = redact(step["error"])[:300]
+        step["errorLines"] = [redact(l)[:400] for l in step["errorLines"]]
+        step["lastLines"] = [redact(l)[:400] for l in step["lastLines"]]
+        known = {}
+        for line in step["errorLines"] + step["lastLines"]:
+            found = classify(line, catalog)
+            if found["patternId"]:
+                known.setdefault(found["patternId"], {"patternId": found["patternId"], "category": found["category"],
+                                                      "title": found["title"], "advice": found["advice"]})
+        step["knownPatterns"] = list(known.values())
     if "logTail" in parsed:
         parsed["logTail"] = [redact(l)[:300] for l in parsed["logTail"]]
 
@@ -579,17 +728,12 @@ def main() -> int:
     if args.run_id:
         run_info, text, run_base, run_head = load_run(args.run_id)
         base, head = base or run_base, head or run_head
-        embedded = find_result_json("\n".join(clean_lines(text)))
-        parsed = parse_result_json(embedded) if embedded else parse_log(text)
-        parsed["source"] = "log-json" if embedded else "log"
+        parsed = parse_text(text)
     elif args.result_json:
         parsed = parse_result_json(json.loads(Path(args.result_json).read_text()))
         parsed["source"] = "result-json"
     else:
-        text = Path(args.log_file).read_text(errors="replace")
-        embedded = find_result_json("\n".join(clean_lines(text)))
-        parsed = parse_result_json(embedded) if embedded else parse_log(text)
-        parsed["source"] = "log-json" if embedded else "log"
+        parsed = parse_text(Path(args.log_file).read_text(errors="replace"))
 
     root = None if args.no_repo else Path(args.repo_dir).resolve()
     catalog = load_catalog(Path(args.catalog) if args.catalog else None)
