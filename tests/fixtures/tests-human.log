@@ -1,0 +1,40 @@
+
+ ────────── Deploying Metadata (dry-run) ──────────
+
+ Deploying (dry-run) v67.0 metadata to
+ deploy-user@example.com using the v68.0 SOAP API.
+
+ ✔Preparing 301ms
+ ✔Waiting for the org to respond 1.25s
+ ✘ Deploying Metadata 2.88s
+   ▸ Components: 2/2 (100%)
+ ◼Running Tests
+ ◼Updating Source Tracking
+ ◼Done
+
+ Status: Failed
+ Deploy ID: 0AfXX0000000000AAA
+ Target Org: deploy-user@example.com
+ Elapsed Time: 4.53s
+
+
+Test Failures [2]
+• DoctorOkServiceTest.insertsAccount
+  message: System.DmlException: Insert failed. First exception on row 0; first error: REQUIRED_FIELD_MISSING, Required fields are missing: [LastName]: [LastName]
+  stacktrace: 
+    Class.DoctorOkServiceTest.insertsAccount: line 4, column 1
+
+• DoctorOkServiceTest.twiceDoubles
+  message: System.AssertException: Assertion Failed: twice should double: Expected: 5, Actual: 4
+  stacktrace: 
+    Class.DoctorOkServiceTest.twiceDoubles: line 3, column 1
+
+
+Test Results Summary
+Passing: 0
+Failing: 2
+Total: 2
+Time: 536
+ ›   Warning: DoctorOkService - Test coverage of selected Apex Class is 50%, at
+ ›    least 75% test coverage is required
+Dry-run complete.

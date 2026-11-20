@@ -1,0 +1,35 @@
+
+ ────────── Deploying Metadata (dry-run) ──────────
+
+ Deploying (dry-run) v67.0 metadata to
+ deploy-user@example.com using the v68.0 SOAP API.
+
+ ✔Preparing 302ms
+ ✔Waiting for the org to respond 6.02s
+ ✘ Deploying Metadata 1.31s
+   ▸ Components: 2/6 (33%)
+ ◼Running Tests
+ ◼Updating Source Tracking
+ ◼Done
+
+ Status: Failed
+ Deploy ID: 0AfXX0000000000AAA
+ Target Org: deploy-user@example.com
+ Elapsed Time: 7.70s
+
+
+Component Failures [4]
+┌───────────────┬──────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─────────────┐
+│ Type          │ Name                     │ Problem                                                                                                                                                                                                                                               │ Line:Column │
+├───────────────┼──────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────┤
+│ CustomField   │ Account.Doctor_Lookup__c │ referenceTo value of 'Doctor_Missing_Object__c' does not resolve to a valid sObject type (3:13)                                                                                                                                                       │ 3:13        │
+│ ApexClass     │ DoctorBrokenService      │ SELECT Id, Doctor_Missing_Field__c FROM Account                                                                                                                                                                                                      │ 3:21        │
+│               │                          │ ^                                                                                                                                                                                                                                                    ││
+│               │                          │ ERROR at Row:1:Column:12                                                                                                                                                                                                                             ││
+│               │                          │ No such column 'Doctor_Missing_Field__c' on entity 'Account'. If you are attempting to use a custom field, be sure to append the '__c' after the custom field name. Please reference your WSDL or the describe call for the appropriate names. (3:21) ││
+│ ApexClass     │ DoctorBrokenService      │ Variable does not exist: Doctor_Missing_Field__c (4:18)                                                                                                                                                                                               │ 4:18        │
+│ PermissionSet │ Doctor_Access            │ In field: field - no CustomField named Account.Doctor_Other_Missing__c found                                                                                                                                                                          │             │
+└───────────────┴──────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴─────────────┘
+
+
+Dry-run complete.
