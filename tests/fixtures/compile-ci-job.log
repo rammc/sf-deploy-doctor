@@ -1,0 +1,49 @@
+2026-11-20T13:26:17.8503211Z shell: /usr/bin/bash -e {0}
+2026-11-20T13:26:17.8503805Z ##[endgroup]
+2026-11-20T13:26:20.2268670Z ───── Deploying Metadata (dry-run) ─────
+2026-11-20T13:26:20.2270406Z Stages:
+2026-11-20T13:26:20.2272729Z 1. Preparing
+2026-11-20T13:26:20.2273528Z 2. Waiting for the org to respond
+2026-11-20T13:26:20.2274493Z 3. Deploying Metadata
+2026-11-20T13:26:20.2275192Z 4. Running Tests
+2026-11-20T13:26:20.2292514Z 5. Updating Source Tracking
+2026-11-20T13:26:20.2293824Z 6. Done
+2026-11-20T13:26:20.2317884Z 
+2026-11-20T13:26:20.2319451Z ▶ Preparing…
+2026-11-20T13:26:20.2320890Z    Deploying (dry-run) v67.0 metadata to deploy-user@example.com using the v68.0 SOAP API.
+2026-11-20T13:26:20.2322238Z    Deploy ID: 0AfXX0000000000AAA
+2026-11-20T13:26:20.2323085Z    Target Org: deploy-user@example.com
+2026-11-20T13:26:20.2872465Z ✔ Preparing (59ms)
+2026-11-20T13:26:20.2880374Z ▶ Waiting for the org to respond…
+2026-11-20T13:26:21.3587088Z ✔ Waiting for the org to respond (1.07s)
+2026-11-20T13:26:21.3588517Z ▶ Deploying Metadata…
+2026-11-20T13:26:21.3588966Z    Components: 0/6 (0%)
+2026-11-20T13:26:26.7400581Z    Components: 3/6 (50%)
+2026-11-20T13:26:29.9158830Z ✘ Deploying Metadata (8.55s)
+2026-11-20T13:26:29.9168568Z    Components: 2/6 (33%)
+2026-11-20T13:26:29.9169104Z 
+2026-11-20T13:26:29.9170593Z Deploying (dry-run) v67.0 metadata to deploy-user@example.com using the v68.0 SOAP API.
+2026-11-20T13:26:29.9174622Z Status: Failed
+2026-11-20T13:26:29.9175352Z Deploy ID: 0AfXX0000000000AAA
+2026-11-20T13:26:29.9176347Z Target Org: deploy-user@example.com
+2026-11-20T13:26:29.9177316Z 
+2026-11-20T13:26:29.9177685Z Elapsed time: 9.68s
+2026-11-20T13:26:29.9178282Z 
+2026-11-20T13:26:29.9192224Z [1m[31mComponent Failures [4][39m[22m
+2026-11-20T13:26:29.9197460Z  Type           Name                      Problem                                                                                                                                                                                                                                                Line:Column 
+2026-11-20T13:26:29.9200239Z -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+2026-11-20T13:26:29.9214208Z  CustomField    Account.Doctor_Lookup__c  referenceTo value of 'Doctor_Missing_Object__c' does not resolve to a valid sObject type (3:13)                                                                                                                                                        3:13        
+2026-11-20T13:26:29.9285534Z  ApexClass      DoctorBrokenService       SELECT Id, Doctor_Missing_Field__c FROM Account                                                                                                                                                                                                        3:21        
+2026-11-20T13:26:29.9289438Z                                           ^                                                                                                                                                                                                                                                                  
+2026-11-20T13:26:29.9291865Z                                           ERROR at Row:1:Column:12                                                                                                                                                                                                                                           
+2026-11-20T13:26:29.9298190Z                                           No such column 'Doctor_Missing_Field__c' on entity 'Account'. If you are attempting to use a custom field, be sure to append the '__c' after the custom field name. Please reference your WSDL or the describe call for the appropriate names. (3:21)              
+2026-11-20T13:26:29.9300403Z  ApexClass      DoctorBrokenService       Variable does not exist: Doctor_Missing_Field__c (4:18)                                                                                                                                                                                                4:18        
+2026-11-20T13:26:29.9302573Z  PermissionSet  Doctor_Access             In field: field - no CustomField named Account.Doctor_Other_Missing__c found                                                                                                                                                                                       
+2026-11-20T13:26:29.9304078Z 
+2026-11-20T13:26:29.9304254Z 
+2026-11-20T13:26:29.9304872Z [34m[1mTest Results Summary[22m[39m
+2026-11-20T13:26:29.9305727Z Passing: 0
+2026-11-20T13:26:29.9306398Z Failing: 0
+2026-11-20T13:26:29.9307421Z Total: 0
+2026-11-20T13:26:29.9318440Z [1m[32mDry-run complete.[39m[22m
+2026-11-20T13:26:30.5711732Z ##[error]Process completed with exit code 1.

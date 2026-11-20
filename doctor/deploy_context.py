@@ -129,6 +129,44 @@ def parse_table(lines: list[str], start: int) -> tuple[list[list[str]], int]:
     return rows, i
 
 
+def parse_plain_table(lines: list[str], start: int) -> tuple[list[dict], int]:
+    """Read the table the CLI prints without a terminal (CI): columns aligned by position.
+
+     Type         Name     Problem                 Line:Column
+    ------------------------------------------------------------
+     ApexClass    Foo      Variable does not ...   4:18
+                           continuation of the problem text
+    """
+    i = start
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i >= len(lines) or not re.match(r"\s*Type\s+Name\s+Problem", lines[i]):
+        return [], start
+    header = lines[i]
+    name_at, problem_at = header.index("Name"), header.index("Problem")
+    pos_at = header.find("Line:Column")
+    i += 1
+    if i < len(lines) and set(lines[i].strip()) <= {"-", "─"}:
+        i += 1
+    rows: list[dict] = []
+    while i < len(lines) and lines[i].strip():
+        line = lines[i]
+        head = line[:problem_at]
+        if not head.strip():
+            if rows:
+                rows[-1]["problem"] += "\n" + line.strip()
+        elif re.match(r"\s*\S+\s+\S", head):
+            problem, position = line[problem_at:], ""
+            if pos_at > 0 and re.fullmatch(r"\d+:\d+", line[pos_at:].strip() or "-"):
+                problem, position = line[problem_at:pos_at], line[pos_at:].strip()
+            rows.append({"type": line[:name_at].strip(), "name": line[name_at:problem_at].strip(),
+                         "problem": problem.strip(), "line:column": position})
+        else:
+            break
+        i += 1
+    return rows, i
+
+
 def split_position(problem: str) -> tuple[str, int | None, int | None]:
     m = re.search(r"\s*\((\d+):(\d+)\)\s*$", problem)
     if not m:
@@ -160,10 +198,14 @@ def parse_log(text: str) -> dict:
     while i < len(lines):
         line = lines[i].strip()
         if re.match(r"Component Failures \[\d+\]", line):
-            rows, i = parse_table(lines, i + 1)
-            header = [h.lower() for h in rows[0]] if rows else []
-            for row in rows[1:]:
-                cell = dict(zip(header, row))
+            plain, end = parse_plain_table(lines, i + 1)
+            if plain:
+                cells, i = plain, end
+            else:
+                rows, i = parse_table(lines, i + 1)
+                header = [h.lower() for h in rows[0]] if rows else []
+                cells = [dict(zip(header, row)) for row in rows[1:]]
+            for cell in cells:
                 problem, ln, col = split_position(cell.get("problem", ""))
                 pos = re.match(r"(\d+):(\d+)", cell.get("line:column", ""))
                 if pos:
@@ -455,12 +497,15 @@ def load_run(run_id: str) -> tuple[dict, str, str | None, str | None]:
     run = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}"))
     jobs = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")).get("jobs", [])
     failed = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")]
-    text = ""
+    text, log_errors = "", []
     for j in failed:
         try:
             text += gh("api", f"repos/{repo}/actions/jobs/{j['id']}/logs") + "\n"
-        except subprocess.CalledProcessError:
-            pass
+        except subprocess.CalledProcessError as err:
+            detail = (err.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+            log_errors.append(f"{j.get('name')}: {detail[-1] if detail else 'gh api failed'}")
+    if failed and not text.strip() and not log_errors:
+        log_errors.append("the log download returned no content")
     prs = run.get("pull_requests") or []
     base = prs[0]["base"]["sha"] if prs else None
     info = {
@@ -471,6 +516,8 @@ def load_run(run_id: str) -> tuple[dict, str, str | None, str | None]:
         "failedJobs": [{"name": j.get("name"),
                         "failedSteps": [s["name"] for s in j.get("steps", []) if s.get("conclusion") == "failure"]}
                        for j in failed],
+        "logLines": len(text.splitlines()),
+        "logErrors": log_errors,
     }
     return info, text, base, run.get("head_sha")
 
@@ -515,6 +562,8 @@ def main() -> int:
     out.write_text(json.dumps(context, indent=2, ensure_ascii=False) + "\n")
     t = context["totals"]
     found = t["componentFailures"] + t["testFailures"] + t["coverageWarnings"] + t["otherErrors"]
+    for problem in (run_info or {}).get("logErrors", []):
+        print(f"::warning::Deploy Doctor could not read a job log: {problem}")
     print(f"deploy-context: {t['componentFailures']} component failure(s), {t['testFailures']} test failure(s), "
           f"{t['coverageWarnings']} coverage warning(s), {t['otherErrors']} other error line(s) -> {out}")
     if os.environ.get("GITHUB_OUTPUT"):
