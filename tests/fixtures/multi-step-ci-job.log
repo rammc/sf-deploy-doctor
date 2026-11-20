@@ -1,0 +1,157 @@
+2026-11-20T10:00:00.0000000Z ##[group]Run sf project deploy start --source-dir core --json
+2026-11-20T10:00:00.0000000Z [36;1msf project deploy start --source-dir core --json[0m
+2026-11-20T10:00:00.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z {
+2026-11-20T10:00:00.0000000Z   "status": 0,
+2026-11-20T10:00:00.0000000Z   "result": {
+2026-11-20T10:00:00.0000000Z     "checkOnly": false,
+2026-11-20T10:00:00.0000000Z     "done": true,
+2026-11-20T10:00:00.0000000Z     "id": "0AfXX0000000001AAA",
+2026-11-20T10:00:00.0000000Z     "numberComponentErrors": 0,
+2026-11-20T10:00:00.0000000Z     "numberComponentsDeployed": 3,
+2026-11-20T10:00:00.0000000Z     "numberComponentsTotal": 3,
+2026-11-20T10:00:00.0000000Z     "numberTestErrors": 0,
+2026-11-20T10:00:00.0000000Z     "numberTestsCompleted": 0,
+2026-11-20T10:00:00.0000000Z     "numberTestsTotal": 0,
+2026-11-20T10:00:00.0000000Z     "rollbackOnError": true,
+2026-11-20T10:00:00.0000000Z     "status": "Succeeded",
+2026-11-20T10:00:00.0000000Z     "success": true,
+2026-11-20T10:00:00.0000000Z     "details": {
+2026-11-20T10:00:00.0000000Z       "componentSuccesses": [
+2026-11-20T10:00:00.0000000Z         { "componentType": "ApexClass", "fullName": "DoctorOkService", "success": "true" }
+2026-11-20T10:00:00.0000000Z       ],
+2026-11-20T10:00:00.0000000Z       "runTestResult": { "numFailures": "0", "numTestsRun": "0" }
+2026-11-20T10:00:00.0000000Z     }
+2026-11-20T10:00:00.0000000Z   },
+2026-11-20T10:00:00.0000000Z   "warnings": []
+2026-11-20T10:00:00.0000000Z }
+2026-11-20T10:00:00.0000000Z ##[group]Run sf project deploy start --source-dir templates --json
+2026-11-20T10:00:00.0000000Z [36;1msf project deploy start --source-dir templates --json[0m
+2026-11-20T10:00:00.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z  ›   Warning: GlobalValueSet, Doctor_Region__gvs, returned from org, but not found in the local project
+2026-11-20T10:00:00.0000000Z {
+2026-11-20T10:00:00.0000000Z   "status": 1,
+2026-11-20T10:00:00.0000000Z   "result": {
+2026-11-20T10:00:00.0000000Z     "checkOnly": false,
+2026-11-20T10:00:00.0000000Z     "done": true,
+2026-11-20T10:00:00.0000000Z     "id": "0AfXX0000000003AAA",
+2026-11-20T10:00:00.0000000Z     "numberComponentErrors": 1,
+2026-11-20T10:00:00.0000000Z     "numberComponentsDeployed": 3,
+2026-11-20T10:00:00.0000000Z     "numberComponentsTotal": 3,
+2026-11-20T10:00:00.0000000Z     "numberTestErrors": 0,
+2026-11-20T10:00:00.0000000Z     "numberTestsCompleted": 0,
+2026-11-20T10:00:00.0000000Z     "numberTestsTotal": 0,
+2026-11-20T10:00:00.0000000Z     "rollbackOnError": true,
+2026-11-20T10:00:00.0000000Z     "status": "Failed",
+2026-11-20T10:00:00.0000000Z     "success": false,
+2026-11-20T10:00:00.0000000Z     "details": {
+2026-11-20T10:00:00.0000000Z       "componentSuccesses": [
+2026-11-20T10:00:00.0000000Z         {
+2026-11-20T10:00:00.0000000Z           "componentType": "ApexClass",
+2026-11-20T10:00:00.0000000Z           "fullName": "DoctorOkService",
+2026-11-20T10:00:00.0000000Z           "success": "true"
+2026-11-20T10:00:00.0000000Z         }
+2026-11-20T10:00:00.0000000Z       ],
+2026-11-20T10:00:00.0000000Z       "runTestResult": {
+2026-11-20T10:00:00.0000000Z         "numFailures": "0",
+2026-11-20T10:00:00.0000000Z         "numTestsRun": "0"
+2026-11-20T10:00:00.0000000Z       }
+2026-11-20T10:00:00.0000000Z     },
+2026-11-20T10:00:00.0000000Z     "files": [
+2026-11-20T10:00:00.0000000Z       {
+2026-11-20T10:00:00.0000000Z         "fullName": "DoctorOkService",
+2026-11-20T10:00:00.0000000Z         "type": "ApexClass",
+2026-11-20T10:00:00.0000000Z         "state": "Unchanged",
+2026-11-20T10:00:00.0000000Z         "filePath": "force-app/main/default/classes/DoctorOkService.cls"
+2026-11-20T10:00:00.0000000Z       },
+2026-11-20T10:00:00.0000000Z       {
+2026-11-20T10:00:00.0000000Z         "fullName": "Doctor_Templates/Doctor_Reminder",
+2026-11-20T10:00:00.0000000Z         "type": "EmailTemplate",
+2026-11-20T10:00:00.0000000Z         "state": "Failed",
+2026-11-20T10:00:00.0000000Z         "problemType": "Error",
+2026-11-20T10:00:00.0000000Z         "error": "Cannot find folder:Doctor_Templates"
+2026-11-20T10:00:00.0000000Z       }
+2026-11-20T10:00:00.0000000Z     ]
+2026-11-20T10:00:00.0000000Z   },
+2026-11-20T10:00:00.0000000Z   "warnings": []
+2026-11-20T10:00:00.0000000Z }
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 1.
+2026-11-20T10:00:00.0000000Z ##[group]Run sf project deploy start --source-dir force-app --json
+2026-11-20T10:00:00.0000000Z [36;1msf project deploy start --source-dir force-app --json[0m
+2026-11-20T10:00:00.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z {
+2026-11-20T10:00:00.0000000Z   "status": 1,
+2026-11-20T10:00:00.0000000Z   "result": {
+2026-11-20T10:00:00.0000000Z     "checkOnly": false,
+2026-11-20T10:00:00.0000000Z     "done": true,
+2026-11-20T10:00:00.0000000Z     "id": "0AfXX0000000002AAA",
+2026-11-20T10:00:00.0000000Z     "numberComponentErrors": 0,
+2026-11-20T10:00:00.0000000Z     "numberComponentsDeployed": 3,
+2026-11-20T10:00:00.0000000Z     "numberComponentsTotal": 3,
+2026-11-20T10:00:00.0000000Z     "numberTestErrors": 0,
+2026-11-20T10:00:00.0000000Z     "numberTestsCompleted": 0,
+2026-11-20T10:00:00.0000000Z     "numberTestsTotal": 0,
+2026-11-20T10:00:00.0000000Z     "rollbackOnError": true,
+2026-11-20T10:00:00.0000000Z     "status": "Failed",
+2026-11-20T10:00:00.0000000Z     "success": false,
+2026-11-20T10:00:00.0000000Z     "details": {
+2026-11-20T10:00:00.0000000Z       "componentSuccesses": [
+2026-11-20T10:00:00.0000000Z         {
+2026-11-20T10:00:00.0000000Z           "componentType": "ApexClass",
+2026-11-20T10:00:00.0000000Z           "fullName": "DoctorOkService",
+2026-11-20T10:00:00.0000000Z           "success": "true"
+2026-11-20T10:00:00.0000000Z         }
+2026-11-20T10:00:00.0000000Z       ],
+2026-11-20T10:00:00.0000000Z       "runTestResult": {
+2026-11-20T10:00:00.0000000Z         "numFailures": "0",
+2026-11-20T10:00:00.0000000Z         "numTestsRun": "0"
+2026-11-20T10:00:00.0000000Z       }
+2026-11-20T10:00:00.0000000Z     },
+2026-11-20T10:00:00.0000000Z     "errorMessage": "UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record",
+2026-11-20T10:00:00.0000000Z     "errorStatusCode": "UNKNOWN_EXCEPTION"
+2026-11-20T10:00:00.0000000Z   },
+2026-11-20T10:00:00.0000000Z   "warnings": []
+2026-11-20T10:00:00.0000000Z }
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 1.
+2026-11-20T10:00:00.0000000Z ##[group]Run sf apex run test --result-format json --code-coverage --wait 60
+2026-11-20T10:00:00.0000000Z [36;1msf apex run test --result-format json --code-coverage --wait 60[0m
+2026-11-20T10:00:00.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-20T10:00:00.0000000Z env:
+2026-11-20T10:00:00.0000000Z   SF_TARGET_ORG: ci
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z {
+2026-11-20T10:00:00.0000000Z   "status": 100,
+2026-11-20T10:00:00.0000000Z   "result": {
+2026-11-20T10:00:00.0000000Z     "summary": {
+2026-11-20T10:00:00.0000000Z       "failRate": "50%",
+2026-11-20T10:00:00.0000000Z       "failing": 3,
+2026-11-20T10:00:00.0000000Z       "outcome": "Failed",
+2026-11-20T10:00:00.0000000Z       "passRate": "50%",
+2026-11-20T10:00:00.0000000Z       "passing": 3,
+2026-11-20T10:00:00.0000000Z       "skipped": 0,
+2026-11-20T10:00:00.0000000Z       "testsRan": 6,
+2026-11-20T10:00:00.0000000Z       "testExecutionTime": "4410 ms"
+2026-11-20T10:00:00.0000000Z     },
+2026-11-20T10:00:00.0000000Z     "tests": [
+2026-11-20T10:00:00.0000000Z       { "Outcome": "Pass", "FullName": "DoctorOkServiceTest.returnsOk", "MethodName": "returnsOk", "Message": null, "StackTrace": null, "ApexClass": { "Name": "DoctorOkServiceTest" } },
+2026-11-20T10:00:00.0000000Z       { "Outcome": "Pass", "FullName": "DoctorOkServiceTest.handlesNull", "MethodName": "handlesNull", "Message": null, "StackTrace": null, "ApexClass": { "Name": "DoctorOkServiceTest" } },
+2026-11-20T10:00:00.0000000Z       { "Outcome": "Pass", "FullName": "DoctorOkServiceTest.handlesEmpty", "MethodName": "handlesEmpty", "Message": null, "StackTrace": null, "ApexClass": { "Name": "DoctorOkServiceTest" } },
+2026-11-20T10:00:00.0000000Z       { "Outcome": "Fail", "FullName": "DoctorPriceServiceTest.appliesDiscount", "MethodName": "appliesDiscount", "Message": "System.DmlException: Update failed. First exception on row 0 with id 01sXX0000000001AAA; first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record or 1 records: 01sXX0000000001AAA: []", "StackTrace": "Class.DoctorTestData.activateStandardPricebook: line 14, column 1\nClass.DoctorPriceServiceTest.setup: line 8, column 1", "ApexClass": { "Name": "DoctorPriceServiceTest" } },
+2026-11-20T10:00:00.0000000Z       { "Outcome": "Fail", "FullName": "DoctorPriceServiceTest.rejectsNegativePrice", "MethodName": "rejectsNegativePrice", "Message": "System.DmlException: Update failed. First exception on row 0 with id 01sXX0000000001AAA; first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record or 1 records: 01sXX0000000001AAA: []", "StackTrace": "Class.DoctorTestData.activateStandardPricebook: line 14, column 1\nClass.DoctorPriceServiceTest.setup: line 8, column 1", "ApexClass": { "Name": "DoctorPriceServiceTest" } },
+2026-11-20T10:00:00.0000000Z       { "Outcome": "Fail", "FullName": "DoctorQuoteServiceTest.createsQuoteLine", "MethodName": "createsQuoteLine", "Message": "System.DmlException: Update failed. First exception on row 0 with id 01sXX0000000001AAA; first error: UNABLE_TO_LOCK_ROW, unable to obtain exclusive access to this record or 1 records: 01sXX0000000001AAA: []", "StackTrace": "Class.DoctorTestData.activateStandardPricebook: line 14, column 1\nClass.DoctorQuoteServiceTest.setup: line 9, column 1", "ApexClass": { "Name": "DoctorQuoteServiceTest" } }
+2026-11-20T10:00:00.0000000Z     ]
+2026-11-20T10:00:00.0000000Z   }
+2026-11-20T10:00:00.0000000Z }
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 100.
+2026-11-20T10:00:00.0000000Z ##[group]Run ./ci/report.sh
+2026-11-20T10:00:00.0000000Z [36;1m./ci/report.sh[0m
+2026-11-20T10:00:00.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z Collecting coverage for jane.doe@example.com
+2026-11-20T10:00:00.0000000Z  ›   Warning: something harmless
+2026-11-20T10:00:00.0000000Z Run with --synchronous or increase --wait timeout to wait for results.
+2026-11-20T10:00:00.0000000Z parse error: Invalid numeric literal at line 1, column 4
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 4.

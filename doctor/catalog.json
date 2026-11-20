@@ -106,6 +106,26 @@
       "advice": "A plain error in the JavaScript or the template at the given line and column. It would fail in every org; the local linter or `sf lightning dev` shows the same error before a deployment."
     },
     {
+      "id": "missing-folder",
+      "category": "missing-dependency",
+      "pattern": "Cannot find folder:\\s*(\\S+)",
+      "refs": {
+        "name": 1
+      },
+      "title": "A component sits in a folder the target org does not have",
+      "advice": "Email templates, reports, dashboards and documents live in folders that are metadata of their own. Deploy the folder in the same deployment or before it. Every component of that folder fails with this message, so one missing folder produces many failures."
+    },
+    {
+      "id": "missing-email-template",
+      "category": "missing-dependency",
+      "pattern": "The emailTemplate (\\S+) can't be found",
+      "refs": {
+        "name": 1
+      },
+      "title": "A component refers to an email template the target org does not have",
+      "advice": "Usually a follow-up error: the template itself failed in the same deployment, often because its folder is missing. Fix the template first."
+    },
+    {
       "id": "missing-named-component",
       "category": "missing-dependency",
       "pattern": "no ([A-Za-z]+) named ([^ ]+) found",
@@ -202,6 +222,14 @@
       "advice": "The test relies on a value that must be unique, or a duplicate rule is active in the target org. Generate unique values in the test or check the duplicate rules of the org."
     },
     {
+      "id": "deploy-row-lock",
+      "category": "org-state",
+      "pattern": "UNABLE_TO_LOCK_ROW: unable to obtain exclusive access",
+      "refs": {},
+      "title": "The deployment could not lock a record in the org",
+      "advice": "Not caused by the change. Something else was writing at the same time: another deployment, a running test execution or a scheduled job. Re-run. If it recurs, look for deployments or test runs that overlap in this org and run them one after the other."
+    },
+    {
       "id": "test-row-lock",
       "category": "test-failure",
       "pattern": "UNABLE_TO_LOCK_ROW",
@@ -226,6 +254,16 @@
       },
       "title": "A governor limit was hit",
       "advice": "Something in the transaction grew: a new trigger, flow or loop adds queries or DML. Look at automation added to the object in this change and at flows in the org that are not in the repository."
+    },
+    {
+      "id": "test-field-integrity",
+      "category": "test-failure",
+      "pattern": "FIELD_INTEGRITY_EXCEPTION, ([^:\\n]+)",
+      "refs": {
+        "message": 1
+      },
+      "title": "The platform rejects a value the test writes",
+      "advice": "A field holds a value that is not allowed in this org: an inactive or unlicensed owner, a record type or picklist value the org does not have, a lookup to the wrong kind of record. Compare the users, record types and settings the test relies on with the target org."
     },
     {
       "id": "test-null-or-no-rows",
@@ -276,6 +314,14 @@
       "advice": "The permission belongs to a feature or license the target org does not have, or the org is on an older release. Remove the permission from the source or enable the feature."
     },
     {
+      "id": "email-template-folders-disabled",
+      "category": "permissions",
+      "pattern": "enable Folders and Enhanced Sharing",
+      "refs": {},
+      "title": "The org does not allow folders for Lightning email templates",
+      "advice": "Enable 'Folders and Enhanced Sharing' for Lightning email templates in the target org (Setup, Lightning Email Templates). Scratch orgs need the matching setting in their definition file. It is an org setting, not something the deployment can switch on."
+    },
+    {
       "id": "feature-not-available",
       "category": "permissions",
       "pattern": "(?:[Nn]ot available for deploy for this organization|is not supported in this organization|requires (?:the )?[A-Za-z ]+ (?:license|feature|permission))",
@@ -324,6 +370,14 @@
       "refs": {},
       "title": "Source tracking reports changes in the org",
       "advice": "Someone changed the same components in the org. Retrieve and merge them, or deploy with --ignore-conflicts if the repository is the source of truth."
+    },
+    {
+      "id": "apex-test-wait-exceeded",
+      "category": "environment",
+      "pattern": "increase --wait timeout to wait for results",
+      "refs": {},
+      "title": "The Apex test run did not finish within the wait time",
+      "advice": "The tests are still running in the org, or were, when the command gave up, so there is no result to read and the steps that need it fail next. Raise `--wait`, or fetch the result later with `sf apex get test`. A test run that suddenly takes much longer often waits on record locks."
     },
     {
       "id": "auth",
