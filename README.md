@@ -91,12 +91,12 @@ The agent never counts and never parses. Numbers in the report come from the con
 
 ## 🔎 What it recognises
 
-The catalog (`doctor/catalog.json`) currently holds 28 patterns in seven categories. A failure that matches no pattern is still reported; the agent classifies it from the text and says so.
+The catalog (`doctor/catalog.json`) currently holds 35 patterns in seven categories. A failure that matches no pattern is still reported; the agent classifies it from the text and says so.
 
 | Category | Examples |
 | --- | --- |
-| **Missing dependency** | A field, object or class the org does not have; a permission set that still lists a deleted field; a manifest entry without a file |
-| **Code** | Apex that does not compile, signature mismatches, follow-up errors of an invalid class |
+| **Missing dependency** | A field, object or class the org does not have; a permission set that still lists a deleted field; a manifest entry without a file; a Lightning web component that imports a missing class, field, label, static resource or child component |
+| **Code** | Apex that does not compile, signature mismatches, follow-up errors of an invalid class; a Lightning web component that does not compile or imports an Apex method without `@AuraEnabled` |
 | **Test failure** | Assertions, required fields, validation rules, duplicate rules, row locks, mixed DML, governor limits |
 | **Coverage** | A deployed class below 75 % with `RunSpecifiedTests`, or the org below 75 % |
 | **Org state** | Active flow versions, components still in use, blocked field type changes, name collisions, source conflicts |
@@ -109,7 +109,8 @@ The cheapest failed deployment is the one that never starts. The pre-flight work
 
 | Signal | Severity | What it catches |
 | --- | --- | --- |
-| `reference-not-in-source` | high | The change refers to a field, object or class that is not defined anywhere in the repository |
+| `reference-not-in-source` | high | The change refers to a field, object or class that is not defined anywhere in the repository. For Lightning web components and Aura this covers every `@salesforce/...` import (Apex, schema, labels, static resources, custom permissions, message channels), `c/...` modules and `<c-...>` tags |
+| `apex-method-not-exposed` | high | A component imports an Apex method that the class does not declare or declares without `@AuraEnabled`, including the case where a change to the class breaks a component that is not part of the pull request |
 | `deleted-still-referenced` | high | A component is deleted while other files still use it |
 | `field-type-change` | high | The type of an existing field changes |
 | `new-required-field` | medium | A field becomes required: tests and integrations that create the object without it start to fail |
@@ -119,6 +120,8 @@ The cheapest failed deployment is the one that never starts. The pre-flight work
 | `active-flow-change` | medium | An active flow is modified |
 | `destructive-change` | medium / low | A component is deleted from the source; fields and objects take their data with them |
 | `profile-change`, `package-reference` | low | Profiles in the change, references to managed package components |
+
+Lightning web components gain the most from this. Salesforce reports a broken import one component at a time: fix the first, deploy again, meet the second. The pre-flight lists all of them at once, before the first deployment.
 
 The signals come from the source alone, so the pre-flight needs no org and no credentials. It says what the diff shows, not what an org will do, and it never approves or blocks a pull request. A pull request without signals gets no comment at all.
 
@@ -267,6 +270,7 @@ python3 doctor/preflight_context.py --base origin/main --head HEAD --out preflig
 
 - **Enrichment:** fetch the full result with `sf project deploy report` when the log is incomplete.
 - **History:** recognise a failure that already occurred in earlier runs and say since when.
+- **UI bundles:** React applications deployed as UI bundles, including the fields their GraphQL queries use.
 - **Skill:** the same doctor as an agent skill for local use.
 
 ## 🤝 Contributing

@@ -6,7 +6,9 @@ Deterministic and read-only. Looks at what a pull request changes in a
 Salesforce project and lists the things that typically make a deployment fail
 or hurt after it succeeded: references to components that are not in the
 source, deleted components that are still used, field type changes, new
-required fields and validation rules, Apex without a test, profiles, flows.
+required fields and validation rules, Apex without a test, profiles, flows,
+and imports of Lightning web components and Aura components that point to
+Apex methods, fields, labels, resources or components the source lacks.
 
 It never talks to an org. A signal therefore says what the source shows, not
 what the org will do; the agent weighs the signals and writes the assessment.
@@ -56,7 +58,8 @@ def component_of(path: str) -> dict | None:
     base = os.path.basename(path)
     parts = path.split("/")
     for mtype, folder in BUNDLE_DIRS.items():
-        if folder in parts[:-1]:
+        # <folder>/<bundle>/<file>: files directly below lwc/ (jsconfig.json) are not components
+        if folder in parts[:-2]:
             return {"type": mtype, "name": parts[parts.index(folder) + 1]}
     for suffix, mtype in sorted(SUFFIX_TYPE.items(), key=lambda kv: -len(kv[0])):
         stem = base[: -len("-meta.xml")] if base.endswith("-meta.xml") and not suffix.endswith("-meta.xml") else base
@@ -68,8 +71,18 @@ def component_of(path: str) -> dict | None:
     return None
 
 
-def changed_components(root: Path, base: str, head: str) -> list[dict]:
+def bundle_dir(path: str) -> str:
+    """force-app/main/default/lwc/card/card.js -> force-app/main/default/lwc/card/"""
+    parts = path.split("/")
+    for folder in BUNDLE_DIRS.values():
+        if folder in parts[:-2]:
+            return "/".join(parts[: parts.index(folder) + 2]) + "/"
+    return os.path.dirname(path) + "/"
+
+
+def changed_components(root: Path, base: str, head: str, files: list[str] | None = None) -> list[dict]:
     out, seen = [], set()
+    bundles: dict[str, dict] = {}
     # No rename detection: the -meta.xml files of Apex classes are identical, so git pairs a
     # deleted class with an unrelated new one. For Salesforce a rename is a new component
     # plus a destructive change anyway.
@@ -81,6 +94,19 @@ def changed_components(root: Path, base: str, head: str) -> list[dict]:
         if not comp:
             continue
         change = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}.get(status, "modified")
+        if comp["type"] in BUNDLE_DIRS:
+            # A bundle is one component made of several files. Its change is decided for the
+            # bundle as a whole below: deleting one stylesheet does not delete the component.
+            folder = bundle_dir(path)
+            entry = bundles.get(folder)
+            if not entry:
+                entry = bundles[folder] = {**comp, "change": "modified", "file": folder, "oldFile": None,
+                                           "files": [], "_changes": []}
+                out.append(entry)
+            entry["_changes"].append(change)
+            if change != "deleted":
+                entry["files"].append(path)
+            continue
         key = (comp["type"], comp["name"], change)
         if key in seen:  # a class and its -meta.xml are one component
             if not path.endswith("-meta.xml"):
@@ -88,6 +114,14 @@ def changed_components(root: Path, base: str, head: str) -> list[dict]:
             continue
         seen.add(key)
         out.append({**comp, "change": change, "file": path, "oldFile": old_path if status == "R" else None})
+    at_head = files if files is not None else files_at(root, head)
+    for folder, entry in bundles.items():
+        changes = entry.pop("_changes")
+        remaining = [f for f in at_head if f.startswith(folder)]
+        if not remaining:
+            entry["change"] = "deleted"
+        elif all(c == "added" for c in changes) and len(remaining) == len(entry["files"]):
+            entry["change"] = "added"
     return out
 
 
@@ -182,8 +216,14 @@ def check_references(root: Path, base: str, head: str, comp: dict, files: list[s
 
 def check_deleted(root: Path, head: str, comp: dict, files: list[str], signals: Signals) -> None:
     leaf = comp["name"].rpartition(".")[2]
-    users = [f for f in files_mentioning(root, head, leaf)
-             if not os.path.basename(f).startswith(leaf + ".")]
+    if comp["type"] == "LightningComponentBundle":
+        # Other components use it as <c-my-card> in markup and as 'c/myCard' in imports.
+        tag = "c-" + re.sub(r"[A-Z]", lambda m: "-" + m.group(0).lower(), leaf)
+        users = sorted({f for f, _, line in grep_lines(root, head, tag) if re.search(re.escape(tag) + r"(?![a-z0-9_-])", line)}
+                       | {f for f, _, line in grep_lines(root, head, f"c/{leaf}") if re.search(rf"c/{re.escape(leaf)}\b", line)})
+    else:
+        users = [f for f in files_mentioning(root, head, leaf)
+                 if not os.path.basename(f).startswith(leaf + ".")]
     if users:
         signals.add("deleted-still-referenced", "high", "A deleted component is still referenced", comp,
                     ", ".join(users[:5]) + (f" and {len(users) - 5} more" if len(users) > 5 else ""),
@@ -254,6 +294,249 @@ def check_apex(root: Path, head: str, comp: dict, files: list[str], changed: lis
     comp["tests"] = [{"file": t, "changedInThisPullRequest": t in changed_files} for t in tests[:10]]
 
 
+# ── Lightning web components and Aura ───────────────────────────────────────
+
+# import x from '@salesforce/<kind>/<target>'
+SF_IMPORT = re.compile(r"""['"]@salesforce/([A-Za-z]+)/([^'"]+)['"]""")
+# import x from 'c/other'  or  import('c/other')
+MODULE_IMPORT = re.compile(r"""(?:from|import)\s*\(?\s*['"]c/([A-Za-z0-9_]+)['"]""")
+LWC_TAG = re.compile(r"<c-([a-z0-9_]+(?:-[a-z0-9_]+)*)")
+AURA_TAG = re.compile(r"<c:([A-Za-z0-9_]+)")
+AURA_CONTROLLER = re.compile(r"""\bcontroller\s*=\s*["']([A-Za-z0-9_.]+)["']""")
+SCRIPT_SUFFIXES = (".js", ".ts", ".mjs")
+# @salesforce/<kind> -> (folder, file suffix) of the component the import needs
+IMPORT_SOURCES = {
+    "resourceUrl": ("staticresources", ".resource-meta.xml"),
+    "contentAssetUrl": ("contentassets", ".asset-meta.xml"),
+    "customPermission": ("customPermissions", ".customPermission-meta.xml"),
+    "messageChannel": ("messageChannels", ".messageChannel-meta.xml"),
+}
+
+
+def camel(tag: str) -> str:
+    """c-my-child -> myChild"""
+    head, *rest = tag.split("-")
+    return head + "".join(p[:1].upper() + p[1:] for p in rest)
+
+
+def has_file(files: list[str], folder: str, basename: str) -> bool:
+    tail = f"/{folder}/{basename}"
+    return any(("/" + f).endswith(tail) for f in files)
+
+
+def has_bundle(files: list[str], name: str, folders=("lwc",)) -> bool:
+    return any(f"/{folder}/{name}/" in "/" + f for f in files for folder in folders)
+
+
+def strip_script_noise(line: str) -> str:
+    stripped = line.lstrip()
+    return "" if stripped.startswith(("//", "*", "/*")) else line
+
+
+def strip_apex_comments(source: str) -> str:
+    source = re.sub(r"/\*.*?\*/", "", source or "", flags=re.S)
+    return re.sub(r"//[^\n]*", "", source)
+
+
+def aura_enabled_methods(source: str) -> set[str]:
+    """Lower-cased names of the methods of an Apex class that carry @AuraEnabled."""
+    source = strip_apex_comments(source)
+    source = re.sub(r"@(?!AuraEnabled\b)\w+\s*\([^)]*\)", "", source, flags=re.I)
+    found = re.finditer(r"@AuraEnabled(?:\s*\([^)]*\))?([^(;{}=]*?)\b([A-Za-z_]\w*)\s*\(", source, flags=re.I)
+    return {m.group(2).lower() for m in found}
+
+
+def declares_method(source: str, method: str) -> bool:
+    return bool(re.search(r"\b" + re.escape(method) + r"\s*\(", strip_apex_comments(source), flags=re.I))
+
+
+def apex_class_file(files: list[str], name: str) -> str | None:
+    wanted = name.lower() + ".cls"
+    hits = [f for f in files if os.path.basename(f).lower() == wanted]
+    return sorted(hits, key=len)[0] if hits else None
+
+
+def custom_labels(root: Path, head: str, files: list[str]) -> set[str]:
+    names: set[str] = set()
+    for f in files:
+        if f.endswith(".labels-meta.xml"):
+            names.update(re.findall(r"<fullName>([^<]+)</fullName>", file_at(root, head, f)))
+        elif f.endswith(".label-meta.xml"):  # decomposed labels: one file per label
+            names.add(os.path.basename(f)[: -len(".label-meta.xml")])
+    return names
+
+
+def grep_lines(root: Path, ref: str, text: str, *pathspec: str) -> list[tuple[str, int, str]]:
+    """(file, line number, line) for every line at `ref` that contains `text`."""
+    out = git(root, "grep", "-n", "-F", "-I", text, ref, "--", *(pathspec or (".",)), check=False)
+    hits = []
+    for raw in out.splitlines():
+        cols = raw.split(":", 3)
+        if len(cols) == 4 and cols[2].isdigit():
+            hits.append((cols[1], int(cols[2]), cols[3]))
+    return hits
+
+
+class Ui:
+    """Checks of what Lightning components import from the rest of the source."""
+
+    def __init__(self, root: Path, base: str, head: str, files: list[str], signals: Signals) -> None:
+        self.root, self.base, self.head, self.files, self.signals = root, base, head, files, signals
+        self._labels: set[str] | None = None
+        self._apex: dict[tuple[str, str], str] = {}
+        self.seen: set[tuple] = set()
+
+    def labels(self) -> set[str]:
+        if self._labels is None:
+            self._labels = custom_labels(self.root, self.head, self.files)
+        return self._labels
+
+    def apex_source(self, ref: str, path: str) -> str:
+        if (ref, path) not in self._apex:
+            self._apex[(ref, path)] = file_at(self.root, ref, path)
+        return self._apex[(ref, path)]
+
+    def missing(self, comp: dict, file: str, line: int, shown: str, name: str, what: str) -> None:
+        if (comp["name"], name) in self.seen:
+            return
+        self.seen.add((comp["name"], name))
+        self.signals.add("reference-not-in-source", "high", "Reference to a component that is not in the repository",
+                         {**comp, "file": file}, shown.strip(),
+                         f"`{name}` ({what}) is not defined anywhere in the source. The deployment only works if it "
+                         "already exists in the target org; otherwise it fails with a missing-dependency error.",
+                         f"Add `{name}` to this change, or confirm that it exists in every target org (and why it is "
+                         "not in the repository).", line)
+
+    def package(self, comp: dict, file: str, line: int, shown: str, name: str) -> None:
+        if (comp["name"], name) in self.seen:
+            return
+        self.seen.add((comp["name"], name))
+        self.signals.add("package-reference", "low", "Reference to a component of a managed package",
+                         {**comp, "file": file}, shown.strip(),
+                         "The name carries a namespace prefix, so it comes from a managed package.",
+                         f"Make sure the package that provides `{name}` is installed in every target org.", line)
+
+    def apex_import(self, comp: dict, file: str, line: int, shown: str, target: str) -> None:
+        parts = target.split(".")
+        if len(parts) == 3:  # namespace.Class.method
+            self.package(comp, file, line, shown, target)
+            return
+        if len(parts) != 2:
+            return
+        cls, method = parts
+        path = apex_class_file(self.files, cls)
+        if not path:
+            self.missing(comp, file, line, shown, cls, "Apex class")
+            return
+        source = self.apex_source(self.head, path)
+        if method.lower() in aura_enabled_methods(source):
+            return
+        if (comp["name"], target) in self.seen:
+            return
+        self.seen.add((comp["name"], target))
+        declared = declares_method(source, method)
+        self.signals.add(
+            "apex-method-not-exposed", "high",
+            "A component imports an Apex method that is not available to it", {**comp, "file": file}, shown.strip(),
+            (f"`{cls}` declares `{method}` without `@AuraEnabled`." if declared
+             else f"`{cls}` (`{path}`) has no method `{method}`.")
+            + " The deployment of the component fails with \"Unable to find Apex action method referenced as "
+            f"'{target}'\".",
+            (f"Annotate `{cls}.{method}` with `@AuraEnabled`, or import a method that is." if declared
+             else f"Add the method to `{cls}`, or correct the name in the import."), line)
+
+    def script_line(self, comp: dict, file: str, line: int, text: str) -> None:
+        text = strip_script_noise(text)
+        for m in SF_IMPORT.finditer(text):
+            kind, target = m.group(1), m.group(2)
+            if kind in ("apex", "apexContinuation"):
+                self.apex_import(comp, file, line, text, target)
+            elif kind == "schema":
+                self.schema_import(comp, file, line, text, target)
+            elif kind == "label":
+                namespace, _, label = target.partition(".")
+                if namespace != "c":
+                    self.package(comp, file, line, text, target)
+                elif label and label not in self.labels():
+                    self.missing(comp, file, line, text, label, "custom label")
+            elif kind in IMPORT_SOURCES:
+                folder, suffix = IMPORT_SOURCES[kind]
+                name = target[:-3] if kind == "messageChannel" and target.endswith("__c") else target
+                if "__" in name:
+                    self.package(comp, file, line, text, target)
+                elif not has_file(self.files, folder, name + suffix):
+                    self.missing(comp, file, line, text, name, IMPORT_LABEL[kind])
+        for m in MODULE_IMPORT.finditer(text):
+            if not has_bundle(self.files, m.group(1)):
+                self.missing(comp, file, line, text, m.group(1), "Lightning web component")
+
+    def schema_import(self, comp: dict, file: str, line: int, shown: str, target: str) -> None:
+        obj, _, rest = target.partition(".")
+        first = rest.split(".")[0] if rest else ""
+        for name in (obj, first):
+            if re.match(r"[A-Za-z0-9]+__[A-Za-z0-9_]+__(c|r|mdt|e)$", name):
+                self.package(comp, file, line, shown, target)
+                return
+        if obj.endswith(("__c", "__mdt", "__e")) and not exists_in_source(self.files, obj):
+            self.missing(comp, file, line, shown, obj, "object")
+            return
+        if first.endswith(("__c", "__r")):
+            field = first[:-1] + "c"  # a relationship Owner__r belongs to the field Owner__c
+            if not exists_in_source(self.files, f"{obj}.{field}"):
+                self.missing(comp, file, line, shown, f"{obj}.{field}", "field")
+
+    def markup_line(self, comp: dict, file: str, line: int, text: str) -> None:
+        if file.endswith(".html"):
+            for m in LWC_TAG.finditer(text):
+                name = camel(m.group(1))
+                if not has_bundle(self.files, name):
+                    self.missing(comp, file, line, text, name, "Lightning web component")
+            return
+        for m in AURA_TAG.finditer(text):
+            if not has_bundle(self.files, m.group(1), ("aura", "lwc")):
+                self.missing(comp, file, line, text, m.group(1), "Lightning component")
+        for m in AURA_CONTROLLER.finditer(text):
+            name = m.group(1)
+            if "." in name:
+                self.package(comp, file, line, text, name)
+            elif not apex_class_file(self.files, name):
+                self.missing(comp, file, line, text, name, "Apex class")
+
+    def check_bundle(self, comp: dict) -> None:
+        """What the changed files of a bundle newly refer to."""
+        for file in comp.get("files", []):
+            if "/__tests__/" in file or "/__mocks__/" in file:
+                continue  # Jest files are not deployed
+            is_script = file.endswith(SCRIPT_SUFFIXES)
+            if not is_script and not file.endswith((".html", ".cmp", ".app", ".evt", ".intf")):
+                continue
+            for number, line in added_lines(self.root, self.base, self.head, file):
+                (self.script_line if is_script else self.markup_line)(comp, file, number, line)
+
+    def check_apex_change(self, comp: dict) -> None:
+        """A modified class must still offer every method the components import from it."""
+        before = aura_enabled_methods(self.apex_source(self.base, comp["file"]))
+        after = aura_enabled_methods(self.apex_source(self.head, comp["file"]))
+        if not before - after:
+            return
+        for file, number, line in grep_lines(self.root, self.head, f"@salesforce/apex/{comp['name']}."):
+            user = component_of(file)
+            if not user or not file.endswith(SCRIPT_SUFFIXES) or "/__tests__/" in file:
+                continue
+            for m in SF_IMPORT.finditer(strip_script_noise(line)):
+                cls, _, method = m.group(2).partition(".")
+                if cls == comp["name"] and method.lower() in before - after:
+                    self.apex_import(user, file, number, line, m.group(2))
+
+
+IMPORT_LABEL = {
+    "resourceUrl": "static resource",
+    "contentAssetUrl": "content asset",
+    "customPermission": "custom permission",
+    "messageChannel": "message channel",
+}
+
+
 def merge_same_reference(items: list[dict]) -> list[dict]:
     """One missing name used in twelve files is one finding, not twelve."""
     merged: dict[tuple, dict] = {}
@@ -276,13 +559,19 @@ def merge_same_reference(items: list[dict]) -> list[dict]:
 
 def build(root: Path, base: str, head: str) -> dict:
     files = files_at(root, head)
-    comps = changed_components(root, base, head)
+    comps = changed_components(root, base, head, files)
     signals = Signals()
+    ui = Ui(root, base, head, files, signals)
     for comp in comps:
         if comp["change"] == "deleted":
             check_deleted(root, head, comp, files, signals)
             continue
+        if comp["type"] in BUNDLE_DIRS:
+            ui.check_bundle(comp)
+            continue
         check_references(root, base, head, comp, files, signals)
+        if comp["type"] == "ApexClass" and comp["change"] == "modified":
+            ui.check_apex_change(comp)
         if comp["type"] == "CustomField":
             check_field(root, base, head, comp, signals)
         elif comp["type"] == "ValidationRule":
@@ -330,6 +619,9 @@ def build(root: Path, base: str, head: str) -> dict:
                         "low: worth a look.",
             "reference-not-in-source": "The name is not defined anywhere in the repository. It may still exist in "
                                        "the org (created by hand, standard feature, unmanaged leftovers).",
+            "apex-method-not-exposed": "A Lightning component imports an Apex method that the class in the source "
+                                       "does not declare, or declares without @AuraEnabled. Salesforce reports such "
+                                       "errors one component at a time, so a deployment shows only the first.",
         },
     }
 

@@ -16,7 +16,10 @@
       "id": "missing-field-soql",
       "category": "missing-dependency",
       "pattern": "No such column '([^']+)' on entity '([^']+)'",
-      "refs": { "field": 1, "object": 2 },
+      "refs": {
+        "field": 1,
+        "object": 2
+      },
       "title": "A query uses a field the target org does not have",
       "advice": "Check whether the field exists in the repository. If it does, it is missing from this deployment (delta too narrow, wrong manifest, .forceignore) or the deploying user cannot see it (field-level security). If it does not, it only exists in another org or the name is misspelled."
     },
@@ -24,15 +27,92 @@
       "id": "missing-field-variable",
       "category": "missing-dependency",
       "pattern": "(?:Variable does not exist|Invalid field): ([A-Za-z0-9_.]+__[cr])",
-      "refs": { "field": 1 },
+      "refs": {
+        "field": 1
+      },
       "title": "Apex uses a custom field the target org does not have",
       "advice": "Usually a follow-up error of a missing field. Fix the missing field first and re-validate."
+    },
+    {
+      "id": "lwc-missing-apex-class",
+      "category": "missing-dependency",
+      "pattern": "Unable to find Apex action class referenced as '([^']+)'",
+      "refs": {
+        "name": 1
+      },
+      "title": "A Lightning component imports an Apex class the target org does not have",
+      "advice": "Deploy the class together with the component, or correct the class name in the `@salesforce/apex/...` import. Salesforce reports these errors one component at a time, so more may follow after this one is fixed."
+    },
+    {
+      "id": "lwc-missing-apex-method",
+      "category": "code",
+      "pattern": "Unable to find Apex action method referenced as '([^'.]+)\\.([^']+)'",
+      "refs": {
+        "name": 1,
+        "method": 2
+      },
+      "title": "A Lightning component imports an Apex method that is missing or not @AuraEnabled",
+      "advice": "The class exists, the method does not, or it lacks `@AuraEnabled`. Check the method name in the import and the annotation in the class. If the source is right, the org holds an older version of the class that is not part of this deployment."
+    },
+    {
+      "id": "lwc-missing-module",
+      "category": "missing-dependency",
+      "pattern": "No MODULE named markup://[A-Za-z0-9_]+:([A-Za-z0-9_]+) found",
+      "refs": {
+        "name": 1
+      },
+      "title": "A Lightning component uses another component that is not in the org",
+      "advice": "The component is used as a tag in the template or imported as `c/name`. Deploy it in the same deployment or correct the name; a tag `<c-my-card>` refers to the bundle `myCard`."
+    },
+    {
+      "id": "lwc-missing-message-channel",
+      "category": "missing-dependency",
+      "pattern": "__LightningMessageChannel__([A-Za-z0-9_]+?)(?:__c)?(?![A-Za-z0-9_])",
+      "refs": {
+        "name": 1
+      },
+      "title": "A Lightning component imports a message channel the org does not have",
+      "advice": "Add the message channel to the deployment or correct the name in the `@salesforce/messageChannel/...` import."
+    },
+    {
+      "id": "lwc-invalid-schema-reference",
+      "category": "missing-dependency",
+      "pattern": "Invalid reference (\\S+) of type sobject[A-Za-z]* in file (\\S+)",
+      "refs": {
+        "name": 1,
+        "file": 2
+      },
+      "title": "A Lightning component imports a field or object the org does not have",
+      "advice": "The `@salesforce/schema/...` import names a field or object that is missing in the target org or hidden from the deploying user. Deploy it together with the component or correct the name."
+    },
+    {
+      "id": "lwc-invalid-reference",
+      "category": "missing-dependency",
+      "pattern": "Invalid reference (\\S+) of type ([A-Za-z]+) in file (\\S+)",
+      "refs": {
+        "target": 1,
+        "kind": 2,
+        "file": 3
+      },
+      "title": "A Lightning component imports something the org does not have",
+      "advice": "The type names what is missing: `label` (a custom label), `resourceUrl` (a static resource), `customPermission`, `contentAssetUrl`. Add it to the deployment or correct the name in the import."
+    },
+    {
+      "id": "lwc-compile",
+      "category": "code",
+      "pattern": "\\bLWC1\\d{3}:",
+      "refs": {},
+      "title": "A Lightning web component does not compile",
+      "advice": "A plain error in the JavaScript or the template at the given line and column. It would fail in every org; the local linter or `sf lightning dev` shows the same error before a deployment."
     },
     {
       "id": "missing-named-component",
       "category": "missing-dependency",
       "pattern": "no ([A-Za-z]+) named ([^ ]+) found",
-      "refs": { "type": 1, "name": 2 },
+      "refs": {
+        "type": 1,
+        "name": 2
+      },
       "title": "A component refers to another component that is not in the org",
       "advice": "Add the referenced component to the deployment, or remove the reference. Typical for permission sets, profiles and layouts that still list fields, classes or record types that were deleted or never deployed."
     },
@@ -40,7 +120,11 @@
       "id": "missing-sobject",
       "category": "missing-dependency",
       "pattern": "(?:referenceTo value of '([^']+)' does not resolve to a valid sObject type|Invalid type: ([A-Za-z0-9_]+)|sObject type '([^']+)' is not supported)",
-      "refs": { "object": 1, "type": 2, "object2": 3 },
+      "refs": {
+        "object": 1,
+        "type": 2,
+        "object2": 3
+      },
       "title": "An object or type is unknown in the target org",
       "advice": "Deploy the object or class first or in the same deployment. If it belongs to a managed package or a feature (Person Accounts, Field Service, Quotes), install the package or enable the feature in the target org."
     },
@@ -48,7 +132,10 @@
       "id": "not-in-package",
       "category": "missing-dependency",
       "pattern": "An object '([^']+)' of type ([A-Za-z]+) was named in package\\.xml, but was not found in zipped directory",
-      "refs": { "name": 1, "type": 2 },
+      "refs": {
+        "name": 1,
+        "type": 2
+      },
       "title": "The manifest names a component that is not in the source",
       "advice": "Remove the entry from the manifest or restore the file. Often a renamed or deleted file whose manifest entry stayed."
     },
@@ -56,7 +143,9 @@
       "id": "apex-signature",
       "category": "code",
       "pattern": "Method does not exist or incorrect signature: (.+?)(?: \\(|$)",
-      "refs": { "method": 1 },
+      "refs": {
+        "method": 1
+      },
       "title": "Apex calls a method that does not exist with that signature",
       "advice": "The caller and the called class are out of sync. Check whether the called class is part of this deployment and whether the org holds an older version of it."
     },
@@ -88,7 +177,9 @@
       "id": "test-required-field",
       "category": "test-failure",
       "pattern": "REQUIRED_FIELD_MISSING, Required fields are missing: \\[([^\\]]+)\\]",
-      "refs": { "field": 1 },
+      "refs": {
+        "field": 1
+      },
       "title": "Test data misses a required field",
       "advice": "Either the test builds an incomplete record, or the target org requires a field the source org does not (a required custom field, a different page layout does not matter, but a required field definition does). Compare the field definition between repository and org."
     },
@@ -96,7 +187,9 @@
       "id": "test-validation-rule",
       "category": "test-failure",
       "pattern": "FIELD_CUSTOM_VALIDATION_EXCEPTION, ([^:]+)",
-      "refs": { "message": 1 },
+      "refs": {
+        "message": 1
+      },
       "title": "A validation rule rejects the test data",
       "advice": "A validation rule in the target org blocks the record the test creates. Check whether the rule is in the repository. If it only exists in the org, the org has drifted from the source."
     },
@@ -128,7 +221,9 @@
       "id": "test-governor-limit",
       "category": "test-failure",
       "pattern": "System\\.LimitException: ([^\\n]+)",
-      "refs": { "limit": 1 },
+      "refs": {
+        "limit": 1
+      },
       "title": "A governor limit was hit",
       "advice": "Something in the transaction grew: a new trigger, flow or loop adds queries or DML. Look at automation added to the object in this change and at flows in the org that are not in the repository."
     },
@@ -144,7 +239,10 @@
       "id": "coverage-class",
       "category": "coverage",
       "pattern": "Test coverage of selected Apex (?:Class|Trigger) is (\\d+)%, at least (\\d+)% test coverage is required",
-      "refs": { "actual": 1, "required": 2 },
+      "refs": {
+        "actual": 1,
+        "required": 2
+      },
       "title": "A deployed class is below the coverage requirement",
       "advice": "With RunSpecifiedTests every class and trigger in the deployment needs 75 % from the specified tests alone. Add the test class that covers it to the test list, or extend the tests."
     },
@@ -152,7 +250,10 @@
       "id": "coverage-org",
       "category": "coverage",
       "pattern": "Average test coverage across all Apex Classes and Triggers is (\\d+)%, at least (\\d+)% test coverage is required",
-      "refs": { "actual": 1, "required": 2 },
+      "refs": {
+        "actual": 1,
+        "required": 2
+      },
       "title": "Org-wide coverage is below the requirement",
       "advice": "The org as a whole is under 75 %. This is rarely caused by one change; failing tests count as zero coverage, so fix test failures first."
     },
@@ -168,7 +269,9 @@
       "id": "unknown-user-permission",
       "category": "permissions",
       "pattern": "Unknown user permission: ([A-Za-z0-9_]+)",
-      "refs": { "permission": 1 },
+      "refs": {
+        "permission": 1
+      },
       "title": "A profile or permission set contains a permission the org does not know",
       "advice": "The permission belongs to a feature or license the target org does not have, or the org is on an older release. Remove the permission from the source or enable the feature."
     },
@@ -208,7 +311,9 @@
       "id": "duplicate-developer-name",
       "category": "org-state",
       "pattern": "duplicate value found: (.+?) duplicates value on record with id",
-      "refs": { "what": 1 },
+      "refs": {
+        "what": 1
+      },
       "title": "A component with this name already exists under another id",
       "advice": "The org already has a component with the same developer name, created by hand. Rename or delete the one in the org, or retrieve it into the source."
     },
