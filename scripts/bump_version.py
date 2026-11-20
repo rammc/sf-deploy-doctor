@@ -27,7 +27,7 @@ def main() -> int:
         path.write_text(new)
         print(f"{path.relative_to(ROOT)}: {len(re.findall(rf'ref: v{re.escape(version)}', new))} reference(s)")
     readme = ROOT / "README.md"
-    readme.write_text(re.sub(r"(sf-deploy-doctor/deploy-(?:doctor|preflight)@)v\d+\.\d+\.\d+", rf"\g<1>v{version}",
+    readme.write_text(re.sub(r"(rammc/sf-deploy-doctor(?:/[\w-]+)?@)v\d+\.\d+\.\d+", rf"\g<1>v{version}",
                              readme.read_text()))
     return 0
 

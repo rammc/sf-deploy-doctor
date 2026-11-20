@@ -9,10 +9,11 @@ description: |
 
 on:
   workflow_run:
-    # Adapt: the names of your workflows that deploy to or validate against a Salesforce org.
+    # The setup script (.github/aw/deploy-doctor/setup.py) fills in the next two lists.
+    # By hand: the names of your workflows that deploy to or validate against a Salesforce org.
     workflows: ["Deploy", "Validate", "PR Validation"]
     types: [completed]
-    # Adapt: the branches whose runs the doctor looks at. gh-aw requires an
+    # The branches whose runs the doctor looks at. gh-aw requires an
     # explicit list. For a pull request validation this is the branch of the
     # pull request, so include your feature branch patterns.
     branches:
@@ -64,7 +65,7 @@ steps:
     uses: actions/checkout@v7
     with:
       repository: rammc/sf-deploy-doctor
-      ref: v0.1.0
+      ref: v0.2.0
       path: .deploy-doctor/tool
       persist-credentials: false
   - name: Build the context from the failed run
