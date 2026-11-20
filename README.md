@@ -257,12 +257,12 @@ Pipelines differ, and a failed step can be anything: a script of your own, a sca
 
 This exists because the first versions failed here. They had only seen pipelines built for the test. Two benchmarks now keep the context builder honest, both run without the agent:
 
-| Benchmark | Failed runs | Known pattern found | Structured, no pattern yet | Excerpt of the failed step only |
+| Benchmark | Failed runs | Known pattern found | Structured, no pattern yet | Excerpt of the failed step, or nothing |
 | --- | --- | --- | --- | --- |
 | One large private pipeline (several deployments per job, tests as a separate step) | 30 | 23 | 0 | 7 |
 | Public repositories found through GitHub code search, 37 of them with a failed Salesforce step | 118 | 84 | 14 | 19 |
 
-The first version explained none of the thirty private runs. The public runs then showed what the private pipeline never used: test results in the human-readable table, CLI errors that span several lines or come as JSON, package installations. One log of the 118 had expired. Most of the nineteen runs with an excerpt only fail in something the doctor is not about: a custom script, infrastructure, a package version build.
+The first version explained none of the thirty private runs. The public runs then showed what the private pipeline never used: test results in the human-readable table, CLI errors that span several lines or come as JSON, package installations. One log of the 118 had expired. Of the seven private runs in the last column, four have a test run that never finished and three fail only in a code scanner or a report step; for two of those three the log holds no error line at all. Most of the nineteen public runs with an excerpt only fail in something the doctor is not about: a custom script, infrastructure, a package version build.
 
 The numbers say what the script extracts, not how good the agent's report is.
 
