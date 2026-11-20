@@ -153,10 +153,24 @@ class Classification(unittest.TestCase):
             "insufficient access rights on cross-reference id: 0Q0000000000001": "insufficient-access",
             "The version of the flow you're updating is active and can't be overwritten.": "active-flow",
             "socket hang up": "network-or-platform",
+            # Lightning web components: messages as an org returned them on a check-only deployment
+            "Unable to find Apex action class referenced as 'NoSuchClassXyz'.": "lwc-missing-apex-class",
+            "Unable to find Apex action method referenced as 'DoctorProbe.hidden'.": "lwc-missing-apex-method",
+            "No MODULE named markup://c:noSuchChildXyz found : [markup://c:probeChild]": "lwc-missing-module",
+            "Invalid reference Account.NoSuchFieldXyz__c of type sobjectField in file probeSchema.js": "lwc-invalid-schema-reference",
+            "Invalid reference c.NoSuchLabelXyz of type label in file probeLabel.js": "lwc-invalid-reference",
+            "Invalid reference noSuchResXyz of type resourceUrl in file probeResource.js": "lwc-invalid-reference",
+            "org.auraframework.throwable.AuraRuntimeException: Unable to retrieve metadata for descriptor: "
+            "markup://c:__LightningMessageChannel__NoSuchChannelXyz__c": "lwc-missing-message-channel",
+            "[Line: 2, Col: 12] LWC1503: Parsing error: Unexpected token (2:12)": "lwc-compile",
         }
         for text, expected in cases.items():
             self.assertEqual(dc.classify(text, CATALOG)["patternId"], expected, text)
         self.assertEqual(dc.classify("something nobody has seen before", CATALOG)["category"], "unknown")
+        method = dc.classify("Unable to find Apex action method referenced as 'DoctorProbe.hidden'.", CATALOG)
+        self.assertEqual(method["refs"], {"name": "DoctorProbe", "method": "hidden"})
+        channel = dc.classify("descriptor: markup://c:__LightningMessageChannel__Refresh__c", CATALOG)
+        self.assertEqual(channel["refs"], {"name": "Refresh"})
 
     def test_usernames_and_ids_are_redacted(self):
         text = dc.redact("deploy as jane.doe@example.com failed on 005XX0000012345AAA")
