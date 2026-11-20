@@ -64,7 +64,7 @@ steps:
     uses: actions/checkout@v7
     with:
       repository: rammc/sf-deploy-doctor
-      ref: main
+      ref: v0.1.0
       path: .deploy-doctor/tool
       persist-credentials: false
   - name: Build the context from the failed run
