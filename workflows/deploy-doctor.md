@@ -109,6 +109,7 @@ change caused it or the target org did, and what to do next.
 - `coverageWarnings`: classes or the org below the coverage requirement.
 - `otherErrors`: error lines when the log had no deployment result at all,
   for example because the login or the CLI setup failed before the deploy.
+  `logTail` then holds the last lines the job printed before it gave up.
 - `totals`: counts. Use these numbers as they are, do not recount.
 - `changedFiles`: the files changed by this run's commits.
 - `categories` and `legend`: what the categories and flags mean.

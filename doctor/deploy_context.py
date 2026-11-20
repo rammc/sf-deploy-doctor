@@ -210,10 +210,14 @@ def parse_log(text: str) -> dict:
         seen = set()
         for line in lines:
             s = line.strip()
-            if re.search(r"(##\[error\]|::error::|^Error(?: \(\d+\))?:|^ERROR|ERROR running|Deploy failed|\bError: )", s) and s not in seen:
+            if re.search(r"(##\[error\]|::error::|^Error(?: \([^)]+\))?:|^ERROR|ERROR running|Deploy failed|\bError: )", s) and s not in seen:
                 seen.add(s)
                 out["otherErrors"].append(s[:MAX_EXCERPT])
         out["otherErrors"] = out["otherErrors"][:20]
+        # What the job printed right before it gave up, for errors no pattern above catches.
+        first_error = next((k for k, l in enumerate(lines) if "##[error]" in l), len(lines))
+        tail = [l.strip() for l in lines[:first_error] if l.strip() and not l.startswith("##[")]
+        out["logTail"] = tail[-15:]
     return out
 
 
@@ -417,6 +421,8 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
         e = redact(e)
         classified_other.append({"text": e, **classify(e, catalog)})
     parsed["otherErrors"] = classified_other
+    if "logTail" in parsed:
+        parsed["logTail"] = [redact(l)[:300] for l in parsed["logTail"]]
 
     by_category: dict[str, int] = {}
     for item in parsed["componentFailures"] + parsed["testFailures"] + parsed["coverageWarnings"] + parsed["otherErrors"]:

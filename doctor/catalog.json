@@ -223,7 +223,7 @@
     {
       "id": "auth",
       "category": "environment",
-      "pattern": "(?:expired access/refresh token|INVALID_SESSION_ID|invalid_grant|No authorization information found|user hasn't approved this consumer|INVALID_LOGIN)",
+      "pattern": "(?:expired access/refresh token|INVALID_SESSION_ID|invalid_grant|JwtGrantError|Client ID is required|Invalid SFDX auth URL|No authorization information found|user hasn't approved this consumer|INVALID_LOGIN)",
       "refs": {},
       "title": "The pipeline cannot authenticate to the org",
       "advice": "Renew the auth URL or JWT secret. Check whether the deployment user is active, the password did not expire and the connected app still allows the user."

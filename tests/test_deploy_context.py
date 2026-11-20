@@ -65,6 +65,18 @@ class ParseHumanLog(unittest.TestCase):
         self.assertEqual(enriched["otherErrors"][0]["patternId"], "auth")
         self.assertEqual(enriched["otherErrors"][0]["category"], "environment")
 
+    def test_named_cli_errors_and_log_tail(self):
+        log = "\n".join([
+            "Log in to Salesforce org using JSON web token (JWT)...",
+            "Error (JwtGrantError): We encountered a JSON web token error: MissingClientIdError::Client ID is required",
+            "##[error]Process completed with exit code 1.",
+            "Post job cleanup.",
+        ])
+        enriched = dc.enrich(dc.parse_log(log), None, None, None, CATALOG)
+        self.assertEqual(enriched["otherErrors"][0]["patternId"], "auth")
+        self.assertEqual(len(enriched["logTail"]), 2)
+        self.assertNotIn("Post job cleanup.", enriched["logTail"])
+
 
 class ParseResultJson(unittest.TestCase):
     def test_same_findings_as_the_human_log(self):
