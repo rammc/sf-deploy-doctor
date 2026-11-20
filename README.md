@@ -6,7 +6,9 @@
 
 An open source agent for your Salesforce pipeline. When a deployment or validation in GitHub Actions goes red, Deploy Doctor reads the failure, finds the root causes and writes **one report**: what broke, whether the change or the target org is responsible, and what to do next.
 
-It runs as a [GitHub Agentic Workflow](https://github.com/github/gh-aw) in your own repository, is read-only by design, and installs with one command.
+A second workflow, the **pre-flight**, looks at a pull request before anything is deployed and points out what is likely to fail.
+
+Both run as [GitHub Agentic Workflows](https://github.com/github/gh-aw) in your own repository, are read-only by design, and install with one command each.
 
 > **Status: early.** The doctor has diagnosed its first real validation failures in a test repository; see the [example report](docs/example-report.md). It has not been used on a production pipeline yet. Expect changes.
 
@@ -101,16 +103,38 @@ The catalog (`doctor/catalog.json`) currently holds 28 patterns in seven categor
 | **Permissions** | Missing access of the deploying user, unknown user permissions, missing features or licenses |
 | **Environment** | Expired authentication, network errors, timeouts, platform availability |
 
+## 🛫 Pre-flight: before the deployment
+
+The cheapest failed deployment is the one that never starts. The pre-flight workflow runs on every pull request that touches metadata. A script reads the diff and collects signals; only if there is at least one does the agent wake up, check each signal against the source and write one comment with a verdict.
+
+| Signal | Severity | What it catches |
+| --- | --- | --- |
+| `reference-not-in-source` | high | The change refers to a field, object or class that is not defined anywhere in the repository |
+| `deleted-still-referenced` | high | A component is deleted while other files still use it |
+| `field-type-change` | high | The type of an existing field changes |
+| `new-required-field` | medium | A field becomes required: tests and integrations that create the object without it start to fail |
+| `field-becomes-unique` | medium | An existing field becomes unique: fails if the org holds duplicates |
+| `validation-rule-active` | medium | An active validation rule is added or its condition changes |
+| `apex-without-test` | medium | No test class refers to a changed Apex class or trigger |
+| `active-flow-change` | medium | An active flow is modified |
+| `destructive-change` | medium / low | A component is deleted from the source; fields and objects take their data with them |
+| `profile-change`, `package-reference` | low | Profiles in the change, references to managed package components |
+
+The signals come from the source alone, so the pre-flight needs no org and no credentials. It says what the diff shows, not what an org will do, and it never approves or blocks a pull request. A pull request without signals gets no comment at all.
+
+On the sample change from the top of this page, the pre-flight reports all three missing references before the validation runs, plus the reference to a missing Apex class that the org did not report.
+
 ## 🚀 Quick start
 
 **Prerequisites:** a repository whose Salesforce deployments or validations run in GitHub Actions, and the [gh-aw](https://github.com/github/gh-aw) extension for the GitHub CLI.
 
 ```bash
 gh extension install github/gh-aw
-gh aw add rammc/sf-deploy-doctor/deploy-doctor
+gh aw add rammc/sf-deploy-doctor/deploy-doctor      # diagnose failed deployments
+gh aw add rammc/sf-deploy-doctor/deploy-preflight   # assess pull requests before deployment
 ```
 
-This adds `.github/workflows/deploy-doctor.md` to your repository. Open it and adapt the trigger in the frontmatter:
+Each command adds one workflow file under `.github/workflows`. The pre-flight works as it is if your metadata lives in `force-app`; otherwise adapt `paths` in its frontmatter. For the doctor, open `deploy-doctor.md` and adapt the trigger:
 
 ```yaml
 on:
@@ -128,8 +152,8 @@ on:
 Choose the AI engine with `engine:` (Copilot is the gh-aw default; `claude` and `codex` are supported) and add the matching secret as described in the [gh-aw documentation](https://github.github.com/gh-aw/). Then compile and commit:
 
 ```bash
-gh aw compile deploy-doctor
-git add .github/workflows/deploy-doctor.* && git commit -m "Add Deploy Doctor"
+gh aw compile
+git add .github/workflows && git commit -m "Add Deploy Doctor"
 ```
 
 From now on every failed run of the listed workflows gets a diagnosis. To examine an older run by hand, start the workflow with its run id:
@@ -169,7 +193,7 @@ Deploy Doctor picks the result up from the log. Without this step it still diagn
 
 ## 🛠️ Use the analysis without the agent
 
-The context builder is one Python file without dependencies. It is useful on its own, for example to post-process a failed deployment in another CI system:
+Both context builders are plain Python without dependencies. They are useful on their own, for example to post-process a failed deployment in another CI system:
 
 ```bash
 # from a saved log
@@ -181,6 +205,9 @@ python3 doctor/deploy_context.py --result-json result.json --repo-dir . --out co
 
 # from a GitHub Actions run
 python3 doctor/deploy_context.py --run-id 1234567890 --out context.json
+
+# pre-flight signals of a branch
+python3 doctor/preflight_context.py --base origin/main --head HEAD --out preflight.json
 ```
 
 <details>
@@ -207,7 +234,6 @@ python3 doctor/deploy_context.py --run-id 1234567890 --out context.json
 
 ## 🗺️ Roadmap
 
-- **Pre-flight:** assess the risk of a pull request before the validation runs: destructive changes, profile edits, flows, components without a test class.
 - **Enrichment:** fetch the full result with `sf project deploy report` when the log is incomplete.
 - **History:** recognise a failure that already occurred in earlier runs and say since when.
 - **Skill:** the same doctor as an agent skill for local use.
