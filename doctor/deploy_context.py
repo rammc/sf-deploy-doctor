@@ -187,12 +187,13 @@ def parse_log(text: str) -> dict:
     if m:
         dep["deployId"] = m.group(1)
     dep["dryRun"] = bool(re.search(r"\(dry-run\)|Dry-run complete|deploy validate|Validating Deployment", joined))
-    m = re.search(r"Components:\s*(\d+)/(\d+)", joined)
-    if m:
-        dep["componentsDeployed"], dep["componentsTotal"] = int(m.group(1)), int(m.group(2))
-    m = re.search(r"Tests:\s*(\d+)/(\d+)", joined)
-    if m:
-        dep["testsCompleted"], dep["testsTotal"] = int(m.group(1)), int(m.group(2))
+    # A CI log repeats the progress line; the last one is the final state.
+    progress = re.findall(r"Components:\s*(\d+)/(\d+)", joined)
+    if progress:
+        dep["componentsDeployed"], dep["componentsTotal"] = int(progress[-1][0]), int(progress[-1][1])
+    progress = re.findall(r"Tests:\s*(\d+)/(\d+)", joined)
+    if progress:
+        dep["testsCompleted"], dep["testsTotal"] = int(progress[-1][0]), int(progress[-1][1])
 
     i = 0
     while i < len(lines):

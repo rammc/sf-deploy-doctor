@@ -56,6 +56,8 @@ class ParseHumanLog(unittest.TestCase):
         self.assertTrue(parsed["componentFailures"][0]["problem"].endswith("valid sObject type"))
         enriched = dc.enrich(parsed, None, None, None, CATALOG)
         self.assertEqual(enriched["totals"]["byCategory"], {"missing-dependency": 4})
+        # the log repeats the progress line (0/6, 3/6, 2/6); the last one counts
+        self.assertEqual((parsed["deployment"]["componentsDeployed"], parsed["deployment"]["componentsTotal"]), (2, 6))
 
     def test_test_failures_and_coverage(self):
         parsed = dc.parse_log((FIXTURES / "tests-human.log").read_text())

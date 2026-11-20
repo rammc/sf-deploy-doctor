@@ -8,7 +8,7 @@ An open source agent for your Salesforce pipeline. When a deployment or validati
 
 It runs as a [GitHub Agentic Workflow](https://github.com/github/gh-aw) in your own repository, is read-only by design, and installs with one command.
 
-> **Status: early.** The analysis core is tested against real validation failures. The agent workflow compiles with gh-aw; a first run in a live repository is in progress. Expect changes.
+> **Status: early.** The doctor has diagnosed its first real validation failures in a test repository; see the [example report](docs/example-report.md). It has not been used on a production pipeline yet. Expect changes.
 
 ## 😵 The problem
 
@@ -32,24 +32,23 @@ Four errors. How many causes? Did this pull request break it, or was the org alr
 
 ## 💡 What you get instead
 
-Deploy Doctor does that reading and answers on the pull request. For the log above, the report looks like this:
+Deploy Doctor does that reading and answers on the pull request. This is what it wrote for the log above, in a live run against a sandbox:
 
-> **Summary.** The validation failed with four component errors that go back to three missing dependencies. None of the missing components exists in the repository, so this is not a delta or manifest problem: the change references metadata that was never committed. The author of the change has to act.
+> **Summary**
 >
-> 4 component failures, 0 test failures, 0 coverage warnings · run #128
+> This was a check-only validation of branch `feat/account-score` that failed. All four component failures are the same kind of problem: metadata added or changed on this branch refers to custom fields, a custom object, and an Apex class that do not exist anywhere in this repository. This is not an org-drift or environment issue; it is incomplete metadata on this branch, and the author of the change needs to act.
 >
-> **1. `Account.Doctor_Missing_Field__c` does not exist** (confidence: high)
-> `DoctorBrokenService.cls` line 3 queries the field, the org does not have it, and no field definition with that name exists under `objects/Account/fields`. The class was changed in this pull request. Next step: commit the field definition together with the class, or remove the field from the query.
+> **Totals:** 4 component failures (4 missing-dependency), 0 test failures, 0 coverage warnings, 0 other errors.
 >
-> **2. The lookup `Account.Doctor_Lookup__c` points to an unknown object** (confidence: high)
-> `referenceTo` names `Doctor_Missing_Object__c`. There is no such object in the repository. Next step: add the object to the change, or correct the name.
+> **2. New class `DoctorBrokenService` queries and reads a field that does not exist — `Account.Doctor_Missing_Field__c`**
 >
-> **3. Permission set `Doctor_Access` grants a field that is not there** (confidence: high)
-> The permission set lists `Account.Doctor_Other_Missing__c`, which is neither in the org nor in the repository. Next step: remove the `fieldPermissions` entry.
+> `DoctorBrokenService.cls` (new in this run) runs `SELECT Id, Doctor_Missing_Field__c FROM Account` (line 3) and then reads `a.Doctor_Missing_Field__c` (line 4). No field with that API name exists in the repository under `objects/Account/fields`. The two reported errors are a single root cause: the second is a direct consequence of the first. Confidence: high. Next step: add the `Account.Doctor_Missing_Field__c` field to the deployment if it is meant to exist, or correct the field name in `DoctorBrokenService.cls` if it was meant to reference an existing field.
 >
-> **Follow-up errors.** "Variable does not exist: Doctor_Missing_Field__c" in `DoctorBrokenService` disappears with cause 1.
+> **3. Permission set `Doctor_Access` grants access to a field that does not exist — `Account.Doctor_Other_Missing__c`**
+>
+> [...] A related, not-yet-surfaced problem in the same file: `Doctor_Access.permissionset-meta.xml` also grants class access to `DoctorNoSuchClass`, and no Apex class by that name exists in the repository either. This did not appear as a reported error in this run, but it will very likely fail the same way once the field-permission issue above is fixed. Recommend fixing it in the same pass.
 
-<sub>Illustration written from the test fixture `tests/fixtures/compile-human.log`. It will be replaced by an unedited report from a live run.</sub>
+Four errors became three causes with one owner, and the report names a fifth problem the org had not even reported yet. The full text is in [docs/example-report.md](docs/example-report.md).
 
 ## ⚙️ How it works
 
