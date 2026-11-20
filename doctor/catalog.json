@@ -34,6 +34,16 @@
       "advice": "Usually a follow-up error of a missing field. Fix the missing field first and re-validate."
     },
     {
+      "id": "apex-unknown-variable",
+      "category": "code",
+      "pattern": "Variable does not exist: ([A-Za-z0-9_.]+)",
+      "refs": {
+        "variable": 1
+      },
+      "title": "Apex uses a variable, property or field that does not exist",
+      "advice": "A plain compile error if the name is local to the class. If it names a property of another class or a field, that class or field is older in the org than in the source, or is missing from this deployment."
+    },
+    {
       "id": "lwc-missing-apex-class",
       "category": "missing-dependency",
       "pattern": "Unable to find Apex action class referenced as '([^']+)'",
@@ -126,6 +136,16 @@
       "advice": "Usually a follow-up error: the template itself failed in the same deployment, often because its folder is missing. Fix the template first."
     },
     {
+      "id": "listview-unknown-column",
+      "category": "missing-dependency",
+      "pattern": "Could not resolve list view column: ([A-Za-z0-9_.]+)",
+      "refs": {
+        "field": 1
+      },
+      "title": "A list view shows a field the target org does not have",
+      "advice": "Deploy the field with the list view, or remove the column. Standard fields that exist only with a feature or in a newer release give the same message."
+    },
+    {
       "id": "missing-named-component",
       "category": "missing-dependency",
       "pattern": "no ([A-Za-z]+) named ([^ ]+) found",
@@ -170,6 +190,16 @@
       "advice": "The caller and the called class are out of sync. Check whether the called class is part of this deployment and whether the org holds an older version of it."
     },
     {
+      "id": "apex-type-not-visible",
+      "category": "permissions",
+      "pattern": "Type is not visible: ([A-Za-z0-9_.]+)",
+      "refs": {
+        "type": 1
+      },
+      "title": "Apex uses a type the target org does not expose",
+      "advice": "The type belongs to a feature, a license or an API version the org does not have, or to a managed package class that is not global. Enable the feature in the target org, raise the API version of the class, or remove the dependency for this org."
+    },
+    {
       "id": "apex-dependent-invalid",
       "category": "code",
       "pattern": "Dependent class is invalid and needs recompilation",
@@ -178,12 +208,40 @@
       "advice": "Follow-up error. Find the first class that fails for its own reason and fix that one."
     },
     {
+      "id": "forceignore-required-file",
+      "category": "code",
+      "pattern": "is forceignored but is required for",
+      "refs": {},
+      "title": "A file a component needs is excluded by .forceignore",
+      "advice": "A rule in `.forceignore` matches the metadata file of a component whose other files are deployed. Narrow the rule or ignore the whole component."
+    },
+    {
+      "id": "metadata-xml-invalid",
+      "category": "code",
+      "pattern": "error parsing (.+?) due to",
+      "refs": {
+        "file": 1
+      },
+      "title": "A metadata file is not well-formed XML",
+      "advice": "The named file cannot be parsed, typically after a merge conflict was resolved by hand: leftover conflict markers, a tag closed twice or not at all. It fails before anything reaches the org."
+    },
+    {
       "id": "apex-syntax",
       "category": "code",
       "pattern": "(?:Unexpected token|Missing '[^']+' at|Illegal assignment from|Unexpected file found in package directory)",
       "refs": {},
       "title": "The source does not compile",
       "advice": "A plain code error in the named file and line. It would fail in every org."
+    },
+    {
+      "id": "test-class-not-found",
+      "category": "test-failure",
+      "pattern": "This class name's value is invalid: ([A-Za-z0-9_]+)",
+      "refs": {
+        "name": 1
+      },
+      "title": "A test class named for the run does not exist in the org",
+      "advice": "The test level names a class the target org does not have, or one without test methods. Check the spelling and whether the class is part of this deployment; a list of tests kept in the workflow goes stale when a class is renamed or deleted."
     },
     {
       "id": "test-assertion",
@@ -330,6 +388,14 @@
       "advice": "Enable the feature in the target org or exclude the component for this org. Compare the org edition and licenses with the org the metadata was retrieved from."
     },
     {
+      "id": "package-install-failed",
+      "category": "org-state",
+      "pattern": "Encountered errors installing the package",
+      "refs": {},
+      "title": "A package could not be installed in the target org",
+      "advice": "The message lists what the org rejected. Typical: the new version removes or changes something the org still uses, or a dependency is missing or older than required. It is about the state of this org, not about the source."
+    },
+    {
       "id": "in-use-cannot-delete",
       "category": "org-state",
       "pattern": "(?:This [a-z ]+ is referenced elsewhere in salesforce\\.com|Cannot delete|is in use by|is referenced by)",
@@ -380,9 +446,53 @@
       "advice": "The tests are still running in the org, or were, when the command gave up, so there is no result to read and the steps that need it fail next. Raise `--wait`, or fetch the result later with `sf apex get test`. A test run that suddenly takes much longer often waits on record locks."
     },
     {
+      "id": "cli-node-incompatible",
+      "category": "environment",
+      "pattern": "webidl\\.util\\.markAsUncloneable is not a function",
+      "refs": {},
+      "title": "The Salesforce CLI does not start on the Node.js version of the runner",
+      "advice": "Not caused by the change. The CLI that was installed needs a newer Node.js than the job provides, so every `sf` command fails before it does anything. Raise the Node.js version in the setup step, or pin the CLI to the version that last worked."
+    },
+    {
+      "id": "cli-usage",
+      "category": "environment",
+      "pattern": "(?:Nonexistent flag: (--[A-Za-z-]+)|Exactly one of the following must be provided|Missing required flag|Unexpected arguments?:)",
+      "refs": {
+        "flag": 1
+      },
+      "title": "The Salesforce CLI rejects the command line",
+      "advice": "The workflow calls the CLI with flags this CLI version does not accept, or leaves out a required one, often because a variable in the command is empty. The command never reached the org; fix the workflow."
+    },
+    {
+      "id": "env-replacement-missing",
+      "category": "environment",
+      "pattern": "replaceWithEnv.{0,40}not set in your env",
+      "refs": {},
+      "title": "An environment variable for a string replacement is not set",
+      "advice": "`sfdx-project.json` replaces a placeholder with an environment variable, and the job does not define it. Add the variable or the secret to the step that deploys; a secret that is not available to pull requests from forks gives the same result."
+    },
+    {
+      "id": "api-limit",
+      "category": "environment",
+      "pattern": "(?:TotalRequests Limit exceeded|REQUEST_LIMIT_EXCEEDED)",
+      "refs": {},
+      "title": "The org has used up its API requests",
+      "advice": "Not caused by the change. The org reached its 24-hour API request limit, so the CLI cannot talk to it. Wait, or find what consumes the requests: integrations, frequent pipeline runs, polling."
+    },
+    {
+      "id": "org-alias-not-authenticated",
+      "category": "environment",
+      "pattern": "No authorization information found for (\\S+?)\\.?(?:\\s|$)",
+      "refs": {
+        "alias": 1
+      },
+      "title": "A step uses an org that was never authenticated in this job",
+      "advice": "Usually a follow-up error. The step that logs in or creates the scratch org failed or was skipped earlier in the job, so the alias does not exist; look at the first failed step. If none failed before, the alias in this command differs from the one the login step set."
+    },
+    {
       "id": "auth",
       "category": "environment",
-      "pattern": "(?:expired access/refresh token|INVALID_SESSION_ID|invalid_grant|JwtGrantError|Client ID is required|Invalid SFDX auth URL|No authorization information found|user hasn't approved this consumer|INVALID_LOGIN)",
+      "pattern": "(?:expired access/refresh token|INVALID_SESSION_ID|invalid_grant|JwtGrantError|Client ID is required|Invalid SFDX auth URL|user hasn't approved this consumer|INVALID_LOGIN)",
       "refs": {},
       "title": "The pipeline cannot authenticate to the org",
       "advice": "Renew the auth URL or JWT secret. Check whether the deployment user is active, the password did not expire and the connected app still allows the user."

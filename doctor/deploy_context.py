@@ -193,7 +193,7 @@ def parse_log_lines(lines: list[str]) -> dict:
     dep = out["deployment"]
     joined = "\n".join(lines)
 
-    m = re.search(r"^\s*Status:\s*(\w+)", joined, re.M)
+    m = re.search(r"^\s*Status:\s*(Succeeded|SucceededPartial|Failed|Canceled|Canceling|InProgress|Pending)\b", joined, re.M)
     if m:
         dep["status"] = m.group(1)
     m = re.search(r"Deploy ID:\s*(0Af\w+)", joined)
@@ -260,6 +260,14 @@ def parse_log_lines(lines: list[str]) -> dict:
             continue
         i += 1
 
+    human = parse_human_tests(lines)
+    if human:
+        known = {t["test"] for t in out["testFailures"]}
+        out["testFailures"] += [t for t in human["failures"] if t["test"] not in known]
+        if human["total"] or human["failures"]:
+            dep.setdefault("tests", {"passing": max(human["total"] - len(human["failures"]), 0),
+                                     "failing": len(human["failures"]), "total": human["total"]})
+
     # Coverage warnings are printed as oclif warnings and wrap across lines.
     warn = re.sub(r"\n\s*›\s+", " ", joined)
     for m in re.finditer(r"Warning:\s*(?:([\w.]+) - )?((?:Test coverage of selected|Average test coverage across)[^\n]+?required)", warn):
@@ -268,10 +276,18 @@ def parse_log_lines(lines: list[str]) -> dict:
     if not out["componentFailures"] and not out["testFailures"] and not out["coverageWarnings"]:
         # Nothing structured: keep the lines that look like the actual error.
         seen = set()
-        for line in lines:
+        for k, line in enumerate(lines):
             s = line.strip()
+            if s.startswith("##[group]"):
+                continue  # the title of a step, not its output
             if re.search(r"(##\[error\]|::error::|^Error(?: \([^)]+\))?:|^ERROR|ERROR running|Deploy failed|\bError: )", s) and s not in seen:
                 seen.add(s)
+                if re.match(r"Error(?: \([^)]+\))?:", s):
+                    # The CLI continues its message on the following lines, up to a blank one.
+                    for more in lines[k + 1:k + 7]:
+                        if not more.strip() or more.startswith("##["):
+                            break
+                        s += " " + more.strip()
                 out["otherErrors"].append(s[:MAX_EXCERPT])
         out["otherErrors"] = out["otherErrors"][:20]
         # What the job printed right before it gave up, for errors no pattern above catches.
@@ -357,6 +373,58 @@ def parse_test_json(data: dict) -> dict:
     return out
 
 
+def parse_human_tests(lines: list[str]) -> dict | None:
+    """The table `sf apex run test` prints without --result-format json.
+
+    Columns are aligned by position; a failed test continues on the following
+    lines with its stack trace, the name column left empty.
+    """
+    failures, total, found = [], 0, False
+    i = 0
+    while i < len(lines):
+        if lines[i].strip() != "=== Test Results":
+            m = re.match(r"Tests Ran\s+(\d+)", lines[i].strip())
+            if m and found:
+                total += int(m.group(1))
+            i += 1
+            continue
+        header = lines[i + 1] if i + 1 < len(lines) else ""
+        cols = {name: header.find(name) for name in ("TEST NAME", "OUTCOME", "MESSAGE", "RUNTIME")}
+        if cols["TEST NAME"] < 0 or cols["OUTCOME"] < 0 or cols["MESSAGE"] < 0:
+            i += 1
+            continue
+        found = True
+        end = cols["RUNTIME"] if cols["RUNTIME"] > 0 else None
+        current = None
+        i += 2
+        while i < len(lines):
+            line = lines[i]
+            if line.startswith("===") or line.startswith("##["):
+                break
+            name = line[:cols["OUTCOME"]].strip()
+            outcome = line[cols["OUTCOME"]:cols["MESSAGE"]].strip()
+            text = line[cols["MESSAGE"]:end].strip() if len(line) > cols["MESSAGE"] else ""
+            if name and not set(name) <= {"─", "-", " "}:
+                current = None
+                if outcome in ("Fail", "CompileFail"):
+                    current = {"test": name, "message": text, "stackTrace": ""}
+                    failures.append(current)
+            elif current is not None and text:
+                if re.match(r"(Class|Trigger|AnonymousBlock)[.:]|External entry point|\(System Code\)", text):
+                    current["stackTrace"] = (current["stackTrace"] + "\n" + text).strip()
+                else:
+                    current["message"] = (current["message"] + " " + text).strip()
+            i += 1
+    return {"failures": failures, "total": total} if found else None
+
+
+def is_cli_error(data: dict) -> bool:
+    """The envelope the CLI prints with --json when a command fails: name, message, exit code."""
+    return (isinstance(data.get("name"), str) and isinstance(data.get("message"), str)
+            and (data.get("exitCode") not in (None, 0) or data.get("status") not in (None, 0))
+            and not is_deploy_result(data))
+
+
 def json_documents(lines: list[str]):
     """Pretty-printed JSON objects in a log: from a line that is `{` to the next line that is `}`."""
     start = None
@@ -391,12 +459,14 @@ def parse_text(text: str) -> dict:
     result in the log counts, not only the first one.
     """
     lines = clean_lines(text)
-    deploys, tests = [], []
+    deploys, tests, cli_errors = [], [], []
     for data in json_documents(lines):
         if is_deploy_result(data):
             deploys.append(parse_result_json(data))
         elif is_test_result(data):
             tests.append(parse_test_json(data))
+        elif is_cli_error(data):
+            cli_errors.append(f"{data['name']}: {data['message']}"[:MAX_EXCERPT])
     if deploys or tests:
         failed = [d for d in deploys if d["deployment"].get("status") not in ("Succeeded", "SucceededPartial")
                   or d["componentFailures"] or d["testFailures"] or d["otherErrors"]]
@@ -421,6 +491,9 @@ def parse_text(text: str) -> dict:
     else:
         out = parse_log_lines(lines)
         out["source"] = "log"
+    for message in cli_errors:
+        if message not in out["otherErrors"]:
+            out["otherErrors"].append(message)
     out["failedSteps"] = failed_steps(lines)
     # A failed step may print the human-readable result of a deployment while other
     # steps printed JSON. Read it too and keep what the JSON did not already say.
@@ -683,15 +756,23 @@ def job_log(repo: str, job_id) -> str:
 def load_run(run_id: str) -> tuple[dict, str, str | None, str | None]:
     repo = os.environ.get("GITHUB_REPOSITORY") or json.loads(gh("repo", "view", "--json", "nameWithOwner"))["nameWithOwner"]
     run = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}"))
-    jobs = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")).get("jobs", [])
-    failed = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")]
     text, log_errors = "", []
+    try:
+        jobs = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")).get("jobs", [])
+    except subprocess.CalledProcessError as err:
+        detail = (err.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        jobs = []
+        log_errors.append(f"the jobs of the run could not be listed: {detail[-1] if detail else 'gh api failed'}")
+    failed = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")]
     for j in failed:
         try:
             text += job_log(repo, j["id"]) + "\n"
         except subprocess.CalledProcessError as err:
             detail = (err.stderr or b"").decode("utf-8", "replace").strip().splitlines()
-            log_errors.append(f"{j.get('name')}: {detail[-1] if detail else 'gh api failed'}")
+            reason = detail[-1] if detail else "gh api failed"
+            if re.search(r"HTTP (404|410)", reason):
+                reason = "the log is no longer available (GitHub deleted it after the retention period, or it was removed)"
+            log_errors.append(f"{j.get('name')}: {reason}")
     if failed and not text.strip() and not log_errors:
         log_errors.append("the log download returned no content")
     prs = run.get("pull_requests") or []

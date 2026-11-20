@@ -1,0 +1,26 @@
+2026-11-20T10:00:00.0000000Z ##[group]Run sf project deploy validate \
+2026-11-20T10:00:00.0000000Z [36;1msf project deploy validate \[0m
+2026-11-20T10:00:00.0000000Z [36;1m  --target-org ci[0m
+2026-11-20T10:00:00.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z [1m[31mError (2):[39m[22m The following error occurred:
+2026-11-20T10:00:00.0000000Z   Exactly one of the following must be provided: --manifest, --metadata, --metadata-dir, --source-dir
+2026-11-20T10:00:00.0000000Z See more help with --help
+2026-11-20T10:00:00.0000000Z 
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 2.
+2026-11-20T10:00:00.0000000Z ##[group]Run sf package install --package 04tXX0000000001AAA --wait 10 --json
+2026-11-20T10:00:00.0000000Z [36;1msf package install --package 04tXX0000000001AAA --wait 10 --json[0m
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z {
+2026-11-20T10:00:00.0000000Z   "name": "PackageInstallError",
+2026-11-20T10:00:00.0000000Z   "message": "Encountered errors installing the package! Installation errors: \n1) You can't remove the lightning__RecordPage target from targets, because the component is part of a managed package.",
+2026-11-20T10:00:00.0000000Z   "exitCode": 1,
+2026-11-20T10:00:00.0000000Z   "status": 1,
+2026-11-20T10:00:00.0000000Z   "commandName": "Install"
+2026-11-20T10:00:00.0000000Z }
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 1.
+2026-11-20T10:00:00.0000000Z ##[group]Run sf apex run test --target-org scratch-org
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z [1m[31mError (NamedOrgNotFoundError):[39m[22m No authorization information found for scratch-org.
+2026-11-20T10:00:00.0000000Z 
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 1.
