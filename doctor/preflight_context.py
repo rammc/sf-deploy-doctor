@@ -70,7 +70,10 @@ def component_of(path: str) -> dict | None:
 
 def changed_components(root: Path, base: str, head: str) -> list[dict]:
     out, seen = [], set()
-    for line in git(root, "diff", "--name-status", "-M", f"{base}...{head}").splitlines():
+    # No rename detection: the -meta.xml files of Apex classes are identical, so git pairs a
+    # deleted class with an unrelated new one. For Salesforce a rename is a new component
+    # plus a destructive change anyway.
+    for line in git(root, "diff", "--name-status", "--no-renames", f"{base}...{head}").splitlines():
         cols = line.split("\t")
         status, path = cols[0][0], cols[-1]
         old_path = cols[1] if status == "R" else path
