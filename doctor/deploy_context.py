@@ -492,6 +492,18 @@ def gh(*args: str) -> str:
     return subprocess.run(["gh", *args], check=True, capture_output=True).stdout.decode("utf-8", "replace")
 
 
+def job_log(repo: str, job_id) -> str:
+    """Job logs carry ANSI colours. Newer gh versions refuse to print them
+    without --allow-escape-sequences, older ones do not know the flag."""
+    path = f"repos/{repo}/actions/jobs/{job_id}/logs"
+    try:
+        return gh("api", path, "--allow-escape-sequences")
+    except subprocess.CalledProcessError as err:
+        if b"unknown flag" not in (err.stderr or b""):
+            raise
+        return gh("api", path)
+
+
 def load_run(run_id: str) -> tuple[dict, str, str | None, str | None]:
     repo = os.environ.get("GITHUB_REPOSITORY") or json.loads(gh("repo", "view", "--json", "nameWithOwner"))["nameWithOwner"]
     run = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}"))
@@ -500,7 +512,7 @@ def load_run(run_id: str) -> tuple[dict, str, str | None, str | None]:
     text, log_errors = "", []
     for j in failed:
         try:
-            text += gh("api", f"repos/{repo}/actions/jobs/{j['id']}/logs") + "\n"
+            text += job_log(repo, j["id"]) + "\n"
         except subprocess.CalledProcessError as err:
             detail = (err.stderr or b"").decode("utf-8", "replace").strip().splitlines()
             log_errors.append(f"{j.get('name')}: {detail[-1] if detail else 'gh api failed'}")
