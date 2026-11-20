@@ -91,7 +91,7 @@ The agent never counts and never parses. Numbers in the report come from the con
 
 ## 🔎 What it recognises
 
-The catalog (`doctor/catalog.json`) currently holds 41 patterns in seven categories. A failure that matches no pattern is still reported; the agent classifies it from the text and says so.
+The catalog (`doctor/catalog.json`) currently holds 53 patterns in seven categories. A failure that matches no pattern is still reported; the agent classifies it from the text and says so.
 
 | Category | Examples |
 | --- | --- |
@@ -166,7 +166,7 @@ Run these in the root of your Salesforce repository:
 ```bash
 # 1. Install both workflows and the setup script
 gh extension install github/gh-aw
-gh aw add rammc/sf-deploy-doctor@v0.3.0
+gh aw add rammc/sf-deploy-doctor@v0.4.0
 
 # 2. Let the setup script find your deploy workflows, branches and package directories
 python3 .github/aw/deploy-doctor/setup.py            # shows what it found
@@ -183,7 +183,7 @@ Merge the commit to your default branch. From then on every failed run of your d
 <details>
 <summary><b>What each step does</b></summary>
 
-1. `gh aw add` copies `deploy-doctor.md` and `deploy-preflight.md` to `.github/workflows`, compiles them to `.lock.yml` files and puts the setup script under `.github/aw/deploy-doctor`. To install only one of the two, name it: `gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.3.0`.
+1. `gh aw add` copies `deploy-doctor.md` and `deploy-preflight.md` to `.github/workflows`, compiles them to `.lock.yml` files and puts the setup script under `.github/aw/deploy-doctor`. To install only one of the two, name it: `gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.4.0`.
 2. The setup script reads `.github/workflows` and `sfdx-project.json`. It looks for workflows that run `sf project deploy`, the older `sfdx force:source:deploy`, sfp or a deploy action, also behind reusable workflows, local actions and shell scripts. It writes their names and the branch patterns of your repository into the trigger of the doctor, and your package directories into the path filter of the pre-flight. It changes nothing else and sends nothing anywhere. If it misses a workflow, name it yourself: `--workflows "Deploy,PR Validation" --branches "main,feature/**"`.
 3. `gh aw secrets bootstrap` lists the secrets the workflows need and asks for the missing ones.
 
@@ -195,9 +195,9 @@ The workflows run on any engine gh-aw supports. Copilot is the default; pass `--
 
 | Engine | Install with | Secret |
 | --- | --- | --- |
-| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.3.0` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
-| Claude | `gh aw add rammc/sf-deploy-doctor@v0.3.0 --engine claude` | `ANTHROPIC_API_KEY` |
-| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.3.0 --engine codex` | shown by `gh aw secrets bootstrap` |
+| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.4.0` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
+| Claude | `gh aw add rammc/sf-deploy-doctor@v0.4.0 --engine claude` | `ANTHROPIC_API_KEY` |
+| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.4.0 --engine codex` | shown by `gh aw secrets bootstrap` |
 
 The examples on this page were written with Claude. With an engine other than Copilot, `gh aw add` prints a notice about a new restricted secret; it tells you that the workflow will read that secret, which is what you asked for.
 
@@ -244,7 +244,8 @@ Two things to know:
 The doctor does not replace or wrap your deployment. It only needs the output of the Salesforce CLI in the job log:
 
 - `sf project deploy start` and `sf project deploy validate`, with or without `--dry-run`, also several deployments in one job
-- Apex tests that run as a step of their own with `sf apex run test --result-format json`
+- Apex tests that run as a step of their own with `sf apex run test`, as JSON or as the human-readable table
+- errors of the CLI itself: a command line it rejects, a failed login, a package installation, an exhausted API limit
 - the composite actions of the [Salesforce DevOps Starter Kit](https://github.com/svierk/salesforce-devops-starter-kit), for example [`svierk/sfdx-deploy`](https://github.com/svierk/sfdx-deploy)
 - any other wrapper that prints the CLI result
 
@@ -254,7 +255,16 @@ If the log contains the `--json` result of the deploy command, the doctor uses t
 
 Pipelines differ, and a failed step can be anything: a script of your own, a scanner, a tool the doctor has never seen. For every failed step the context keeps the command, the lines that look like an error and the last lines of output, with warnings counted instead of listed. If the structured findings do not explain a failed step, the agent diagnoses from that excerpt and says that it did. You get a weaker diagnosis instead of none.
 
-This exists because the first version failed here. Run over thirty failed runs of a real pipeline, it explained none of them: that pipeline deploys several times per job and runs the tests as a separate step. The same thirty runs are now the benchmark; the current version extracts a structured cause with a known pattern for twenty-three of them and an excerpt of the failed step for four, where a test run never finished. The remaining three failed only in a code scanner or a report step, which is not a deployment problem.
+This exists because the first versions failed here. They had only seen pipelines built for the test. Two benchmarks now keep the context builder honest, both run without the agent:
+
+| Benchmark | Failed runs | Known pattern found | Structured, no pattern yet | Excerpt of the failed step, or nothing |
+| --- | --- | --- | --- | --- |
+| One large private pipeline (several deployments per job, tests as a separate step) | 30 | 23 | 0 | 7 |
+| Public repositories found through GitHub code search, 37 of them with a failed Salesforce step | 118 | 84 | 14 | 19 |
+
+The first version explained none of the thirty private runs. The public runs then showed what the private pipeline never used: test results in the human-readable table, CLI errors that span several lines or come as JSON, package installations. One log of the 118 had expired. Of the seven private runs in the last column, four have a test run that never finished and three fail only in a code scanner or a report step; for two of those three the log holds no error line at all. Most of the nineteen public runs with an excerpt only fail in something the doctor is not about: a custom script, infrastructure, a package version build.
+
+The numbers say what the script extracts, not how good the agent's report is.
 
 ### Recommended: print the deploy report on failure
 

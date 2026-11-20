@@ -1,0 +1,31 @@
+2026-11-20T10:00:00.0000000Z ##[group]Run sf apex run test --test-level RunLocalTests --code-coverage --result-format human --wait 20
+2026-11-20T10:00:00.0000000Z [36;1msf apex run test --test-level RunLocalTests --code-coverage --result-format human --wait 20[0m
+2026-11-20T10:00:00.0000000Z shell: /usr/bin/bash -e {0}
+2026-11-20T10:00:00.0000000Z ##[endgroup]
+2026-11-20T10:00:00.0000000Z === Test Results
+2026-11-20T10:00:00.0000000Z TEST NAME                                                                                                                OUTCOME  MESSAGE                                                                                       RUNTIME (MS)
+2026-11-20T10:00:00.0000000Z ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  ───────  ────────────────────────────────────────────────────────────────────────────────────────────  ────────────
+2026-11-20T10:00:00.0000000Z ReportCalloutService_TEST.moveReport                                                                                     Pass                                                                                                   291
+2026-11-20T10:00:00.0000000Z AccountSummaryControllerTest.shouldBuildSummaryForAccount                                                                Fail     System.AssertException: Assertion Failed: Account should be resolved                          
+2026-11-20T10:00:00.0000000Z                                                                                                                                   External entry point                                                                          
+2026-11-20T10:00:00.0000000Z                                                                                                                                   Class.AccountSummaryControllerTest.shouldBuildSummaryForAccount: line 174, column 1           
+2026-11-20T10:00:00.0000000Z AccountSummaryControllerTest.shouldFormatHelpers                                                                         Pass                                                                                                   19
+2026-11-20T10:00:00.0000000Z GovernorBudgetTest.pastTheHardThresholdWarnsHarder                                                                       Fail     System.LimitException: Apex CPU time limit exceeded                                           
+2026-11-20T10:00:00.0000000Z                                                                                                                                   Class.GovernorBudget.check: line 40, column 1                                                 
+2026-11-20T10:00:00.0000000Z                                                                                                                                   Class.GovernorBudgetTest.pastTheHardThresholdWarnsHarder: line 12, column 1                   
+2026-11-20T10:00:00.0000000Z AccountSummaryControllerTest.shouldHandleMissingRecord                                                                   Pass                                                                                                   120
+2026-11-20T10:00:00.0000000Z 
+2026-11-20T10:00:00.0000000Z === Apex Code Coverage by Class
+2026-11-20T10:00:00.0000000Z CLASSES                               PERCENT  UNCOVERED LINES
+2026-11-20T10:00:00.0000000Z ────────────────────────────────────  ───────  ───────────────────────
+2026-11-20T10:00:00.0000000Z AccountSummaryController              74%      12,13,14
+2026-11-20T10:00:00.0000000Z 
+2026-11-20T10:00:00.0000000Z === Test Summary
+2026-11-20T10:00:00.0000000Z NAME                 VALUE
+2026-11-20T10:00:00.0000000Z ───────────────────  ─────────────────────────────
+2026-11-20T10:00:00.0000000Z Outcome              Failed
+2026-11-20T10:00:00.0000000Z Tests Ran            241
+2026-11-20T10:00:00.0000000Z Pass Rate            99%
+2026-11-20T10:00:00.0000000Z Fail Rate            1%
+2026-11-20T10:00:00.0000000Z Username             test-abc123@example.com
+2026-11-20T10:00:00.0000000Z ##[error]Process completed with exit code 100.

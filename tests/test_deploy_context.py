@@ -202,6 +202,40 @@ class RealPipelines(unittest.TestCase):
         self.assertTrue(parsed["componentFailures"], "the table of the failed step is lost next to JSON of another step")
 
 
+class OtherPipelines(unittest.TestCase):
+    """Formats found in the failed runs of public repositories, not in the first benchmark."""
+
+    def test_apex_tests_in_the_human_readable_table(self):
+        ctx = dc.enrich(dc.parse_text((FIXTURES / "apex-tests-human-ci-job.log").read_text()), None, None, None, CATALOG)
+        tests = {t["test"]: t for t in ctx["testFailures"]}
+        self.assertEqual(sorted(tests), ["AccountSummaryControllerTest.shouldBuildSummaryForAccount",
+                                         "GovernorBudgetTest.pastTheHardThresholdWarnsHarder"])
+        first = tests["AccountSummaryControllerTest.shouldBuildSummaryForAccount"]
+        self.assertEqual(first["message"], "System.AssertException: Assertion Failed: Account should be resolved")
+        self.assertIn("line 174", first["stackTrace"])
+        self.assertEqual(first["patternId"], "test-assertion")
+        second = tests["GovernorBudgetTest.pastTheHardThresholdWarnsHarder"]
+        self.assertEqual(second["patternId"], "test-governor-limit")
+        self.assertEqual([i["name"] for i in second["involved"]], ["GovernorBudget"])
+        self.assertEqual(ctx["deployment"]["tests"], {"passing": 239, "failing": 2, "total": 241})
+        self.assertEqual(ctx["detailsMissing"], [])
+        self.assertNotIn("example.com", json.dumps(ctx["failedSteps"]))
+
+    def test_cli_errors_over_several_lines_and_as_json(self):
+        ctx = dc.enrich(dc.parse_text((FIXTURES / "cli-errors-ci-job.log").read_text()), None, None, None, CATALOG)
+        found = {e["patternId"]: e["text"] for e in ctx["otherErrors"]}
+        self.assertIn("Exactly one of the following must be provided", found["cli-usage"])
+        self.assertTrue(found["package-install-failed"].startswith("PackageInstallError: Encountered errors"))
+        self.assertIn("org-alias-not-authenticated", found)
+        self.assertNotIn("auth", found)
+        self.assertFalse(any("##[group]" in e["text"] for e in ctx["otherErrors"]))
+        self.assertEqual(len(ctx["failedSteps"]), 3)
+
+    def test_status_is_only_read_from_a_deployment(self):
+        parsed = dc.parse_log("Status: Downloaded newer image for salesforce/cli:latest-full\n")
+        self.assertNotIn("status", parsed["deployment"])
+
+
 class Classification(unittest.TestCase):
     def test_every_pattern_compiles_and_has_a_known_category(self):
         import re
@@ -225,6 +259,21 @@ class Classification(unittest.TestCase):
             "insufficient access rights on cross-reference id: 0Q0000000000001": "insufficient-access",
             "The version of the flow you're updating is active and can't be overwritten.": "active-flow",
             "socket hang up": "network-or-platform",
+            # messages from failed runs of public repositories
+            "Variable does not exist: request": "apex-unknown-variable",
+            "Variable does not exist: Score__c": "missing-field-variable",
+            "Type is not visible: ConnectApi.EinsteinLLM": "apex-type-not-visible",
+            "Could not resolve list view column: AssignedUser": "listview-unknown-column",
+            "TypeError: webidl.util.markAsUncloneable is not a function": "cli-node-incompatible",
+            "Error (2): Nonexistent flag: --debug": "cli-usage",
+            "Error (ConversionError): Component conversion failed: \"ENV_ID\" is in sfdx-project.json as a value for \"replaceWithEnv\" property, but it's not set in your environment.": "env-replacement-missing",
+            "Error (1): TotalRequests Limit exceeded.": "api-limit",
+            "Error (UnexpectedForceIgnore): Metadata xml file /w/lwc/card/card.js-meta.xml is forceignored but is required for /w/lwc/card.": "forceignore-required-file",
+            "Error (LibraryError): error parsing /w/My App/objects/Case/fields/Status__c.field-meta.xml due to:": "metadata-xml-invalid",
+            "Error (INVALID_INPUT): This class name's value is invalid: CoverageTest. Provide the name of an Apex class that has test methods.": "test-class-not-found",
+            "PackageInstallError: Encountered errors installing the package! Installation errors:": "package-install-failed",
+            "Error (NamedOrgNotFoundError): No authorization information found for scratch-org.": "org-alias-not-authenticated",
+            "Error (RefreshTokenAuthError): Error authenticating with the refresh token due to: expired access/refresh token": "auth",
             # messages from a real pipeline with email templates and a separate test step
             "Cannot find folder:ServiceEmailTemplates": "missing-folder",
             "The emailTemplate OrderEmails/Order_Cancelled can't be found. Use the following format": "missing-email-template",
