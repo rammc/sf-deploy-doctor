@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "note": "Known Salesforce deployment error patterns. Each entry is a hint for the agent, not a verdict: 'pattern' is a case-insensitive regular expression matched against the problem text, 'refs' names the capture groups that hold a referenced component.",
+  "categories": {
+    "missing-dependency": "The deployment references a component that the target org does not have and that is not part of this deployment.",
+    "code": "The source itself is wrong: it does not compile or contradicts another component in the same deployment.",
+    "test-failure": "An Apex test ran and failed.",
+    "coverage": "The tests passed, but the coverage requirement is not met.",
+    "org-state": "The target org is in a state that blocks the change: data, active versions, references, features or licenses.",
+    "permissions": "The deploying user or the org lacks a permission, license or feature.",
+    "environment": "The failure is not about the metadata: authentication, network, timeout, platform availability.",
+    "unknown": "No known pattern matched."
+  },
+  "patterns": [
+    {
+      "id": "missing-field-soql",
+      "category": "missing-dependency",
+      "pattern": "No such column '([^']+)' on entity '([^']+)'",
+      "refs": { "field": 1, "object": 2 },
+      "title": "A query uses a field the target org does not have",
+      "advice": "Check whether the field exists in the repository. If it does, it is missing from this deployment (delta too narrow, wrong manifest, .forceignore) or the deploying user cannot see it (field-level security). If it does not, it only exists in another org or the name is misspelled."
+    },
+    {
+      "id": "missing-field-variable",
+      "category": "missing-dependency",
+      "pattern": "(?:Variable does not exist|Invalid field): ([A-Za-z0-9_.]+__[cr])",
+      "refs": { "field": 1 },
+      "title": "Apex uses a custom field the target org does not have",
+      "advice": "Usually a follow-up error of a missing field. Fix the missing field first and re-validate."
+    },
+    {
+      "id": "missing-named-component",
+      "category": "missing-dependency",
+      "pattern": "no ([A-Za-z]+) named ([^ ]+) found",
+      "refs": { "type": 1, "name": 2 },
+      "title": "A component refers to another component that is not in the org",
+      "advice": "Add the referenced component to the deployment, or remove the reference. Typical for permission sets, profiles and layouts that still list fields, classes or record types that were deleted or never deployed."
+    },
+    {
+      "id": "missing-sobject",
+      "category": "missing-dependency",
+      "pattern": "(?:referenceTo value of '([^']+)' does not resolve to a valid sObject type|Invalid type: ([A-Za-z0-9_]+)|sObject type '([^']+)' is not supported)",
+      "refs": { "object": 1, "type": 2, "object2": 3 },
+      "title": "An object or type is unknown in the target org",
+      "advice": "Deploy the object or class first or in the same deployment. If it belongs to a managed package or a feature (Person Accounts, Field Service, Quotes), install the package or enable the feature in the target org."
+    },
+    {
+      "id": "not-in-package",
+      "category": "missing-dependency",
+      "pattern": "An object '([^']+)' of type ([A-Za-z]+) was named in package\\.xml, but was not found in zipped directory",
+      "refs": { "name": 1, "type": 2 },
+      "title": "The manifest names a component that is not in the source",
+      "advice": "Remove the entry from the manifest or restore the file. Often a renamed or deleted file whose manifest entry stayed."
+    },
+    {
+      "id": "apex-signature",
+      "category": "code",
+      "pattern": "Method does not exist or incorrect signature: (.+?)(?: \\(|$)",
+      "refs": { "method": 1 },
+      "title": "Apex calls a method that does not exist with that signature",
+      "advice": "The caller and the called class are out of sync. Check whether the called class is part of this deployment and whether the org holds an older version of it."
+    },
+    {
+      "id": "apex-dependent-invalid",
+      "category": "code",
+      "pattern": "Dependent class is invalid and needs recompilation",
+      "refs": {},
+      "title": "A class depends on another class that does not compile",
+      "advice": "Follow-up error. Find the first class that fails for its own reason and fix that one."
+    },
+    {
+      "id": "apex-syntax",
+      "category": "code",
+      "pattern": "(?:Unexpected token|Missing '[^']+' at|Illegal assignment from|Unexpected file found in package directory)",
+      "refs": {},
+      "title": "The source does not compile",
+      "advice": "A plain code error in the named file and line. It would fail in every org."
+    },
+    {
+      "id": "test-assertion",
+      "category": "test-failure",
+      "pattern": "System\\.AssertException: Assertion Failed",
+      "refs": {},
+      "title": "A test assertion failed",
+      "advice": "The behaviour differs from what the test expects. Decide whether the change or the test is wrong. Do not weaken the assertion to get a green run."
+    },
+    {
+      "id": "test-required-field",
+      "category": "test-failure",
+      "pattern": "REQUIRED_FIELD_MISSING, Required fields are missing: \\[([^\\]]+)\\]",
+      "refs": { "field": 1 },
+      "title": "Test data misses a required field",
+      "advice": "Either the test builds an incomplete record, or the target org requires a field the source org does not (a required custom field, a different page layout does not matter, but a required field definition does). Compare the field definition between repository and org."
+    },
+    {
+      "id": "test-validation-rule",
+      "category": "test-failure",
+      "pattern": "FIELD_CUSTOM_VALIDATION_EXCEPTION, ([^:]+)",
+      "refs": { "message": 1 },
+      "title": "A validation rule rejects the test data",
+      "advice": "A validation rule in the target org blocks the record the test creates. Check whether the rule is in the repository. If it only exists in the org, the org has drifted from the source."
+    },
+    {
+      "id": "test-duplicate",
+      "category": "test-failure",
+      "pattern": "(?:DUPLICATE_VALUE|DUPLICATES_DETECTED)",
+      "refs": {},
+      "title": "Test data collides with a unique field or a duplicate rule",
+      "advice": "The test relies on a value that must be unique, or a duplicate rule is active in the target org. Generate unique values in the test or check the duplicate rules of the org."
+    },
+    {
+      "id": "test-row-lock",
+      "category": "test-failure",
+      "pattern": "UNABLE_TO_LOCK_ROW",
+      "refs": {},
+      "title": "A record was locked by another transaction",
+      "advice": "Typically intermittent: parallel test execution or another job touching the same records. Re-run once. If it recurs, disable parallel testing for the affected classes or isolate the shared records."
+    },
+    {
+      "id": "test-mixed-dml",
+      "category": "test-failure",
+      "pattern": "MIXED_DML_OPERATION",
+      "refs": {},
+      "title": "Setup and non-setup objects are written in one transaction",
+      "advice": "Wrap the setup DML (User, PermissionSetAssignment, Group) in System.runAs in the test."
+    },
+    {
+      "id": "test-governor-limit",
+      "category": "test-failure",
+      "pattern": "System\\.LimitException: ([^\\n]+)",
+      "refs": { "limit": 1 },
+      "title": "A governor limit was hit",
+      "advice": "Something in the transaction grew: a new trigger, flow or loop adds queries or DML. Look at automation added to the object in this change and at flows in the org that are not in the repository."
+    },
+    {
+      "id": "test-null-or-no-rows",
+      "category": "test-failure",
+      "pattern": "(?:System\\.NullPointerException|List has no rows for assignment to SObject)",
+      "refs": {},
+      "title": "The test hits missing data",
+      "advice": "The code expects a record or value that is not there. Tests that rely on org data (no @TestSetup, SeeAllData=true, custom settings, custom metadata) pass in one org and fail in another."
+    },
+    {
+      "id": "coverage-class",
+      "category": "coverage",
+      "pattern": "Test coverage of selected Apex (?:Class|Trigger) is (\\d+)%, at least (\\d+)% test coverage is required",
+      "refs": { "actual": 1, "required": 2 },
+      "title": "A deployed class is below the coverage requirement",
+      "advice": "With RunSpecifiedTests every class and trigger in the deployment needs 75 % from the specified tests alone. Add the test class that covers it to the test list, or extend the tests."
+    },
+    {
+      "id": "coverage-org",
+      "category": "coverage",
+      "pattern": "Average test coverage across all Apex Classes and Triggers is (\\d+)%, at least (\\d+)% test coverage is required",
+      "refs": { "actual": 1, "required": 2 },
+      "title": "Org-wide coverage is below the requirement",
+      "advice": "The org as a whole is under 75 %. This is rarely caused by one change; failing tests count as zero coverage, so fix test failures first."
+    },
+    {
+      "id": "insufficient-access",
+      "category": "permissions",
+      "pattern": "(?:insufficient access rights on cross-reference id|INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY|INSUFFICIENT_ACCESS_OR_READONLY)",
+      "refs": {},
+      "title": "The deploying user lacks access to a referenced record or component",
+      "advice": "Check the permissions of the deployment user in the target org (Modify Metadata, Author Apex, access to the referenced record type, queue or user). A referenced user or queue that does not exist in this org gives the same message."
+    },
+    {
+      "id": "unknown-user-permission",
+      "category": "permissions",
+      "pattern": "Unknown user permission: ([A-Za-z0-9_]+)",
+      "refs": { "permission": 1 },
+      "title": "A profile or permission set contains a permission the org does not know",
+      "advice": "The permission belongs to a feature or license the target org does not have, or the org is on an older release. Remove the permission from the source or enable the feature."
+    },
+    {
+      "id": "feature-not-available",
+      "category": "permissions",
+      "pattern": "(?:[Nn]ot available for deploy for this organization|is not supported in this organization|requires (?:the )?[A-Za-z ]+ (?:license|feature|permission))",
+      "refs": {},
+      "title": "The org lacks a feature or license the metadata needs",
+      "advice": "Enable the feature in the target org or exclude the component for this org. Compare the org edition and licenses with the org the metadata was retrieved from."
+    },
+    {
+      "id": "in-use-cannot-delete",
+      "category": "org-state",
+      "pattern": "(?:This [a-z ]+ is referenced elsewhere in salesforce\\.com|Cannot delete|is in use by|is referenced by)",
+      "refs": {},
+      "title": "A component cannot be changed or deleted because something still uses it",
+      "advice": "Remove the references first (often in the org only: reports, list views, flows versions, layouts), then repeat the destructive change."
+    },
+    {
+      "id": "field-type-change",
+      "category": "org-state",
+      "pattern": "(?:Cannot change (?:field )?type|Cannot change which object this is a child of|cannot be converted)",
+      "refs": {},
+      "title": "A field type change is not allowed with the existing data or references",
+      "advice": "Salesforce blocks some type changes through the Metadata API. Change the type in the org manually or migrate through a new field."
+    },
+    {
+      "id": "active-flow",
+      "category": "org-state",
+      "pattern": "(?:[Ff]low is already in use|The version of the flow you're updating is active|can't (?:overwrite|delete) an active)",
+      "refs": {},
+      "title": "An active flow version blocks the change",
+      "advice": "Deploy the flow as a new version or deactivate the active version first. Check the org setting 'Deploy processes and flows as active'."
+    },
+    {
+      "id": "duplicate-developer-name",
+      "category": "org-state",
+      "pattern": "duplicate value found: (.+?) duplicates value on record with id",
+      "refs": { "what": 1 },
+      "title": "A component with this name already exists under another id",
+      "advice": "The org already has a component with the same developer name, created by hand. Rename or delete the one in the org, or retrieve it into the source."
+    },
+    {
+      "id": "source-conflict",
+      "category": "org-state",
+      "pattern": "(?:conflicts detected|There are changes in the org that conflict)",
+      "refs": {},
+      "title": "Source tracking reports changes in the org",
+      "advice": "Someone changed the same components in the org. Retrieve and merge them, or deploy with --ignore-conflicts if the repository is the source of truth."
+    },
+    {
+      "id": "auth",
+      "category": "environment",
+      "pattern": "(?:expired access/refresh token|INVALID_SESSION_ID|invalid_grant|No authorization information found|user hasn't approved this consumer|INVALID_LOGIN)",
+      "refs": {},
+      "title": "The pipeline cannot authenticate to the org",
+      "advice": "Renew the auth URL or JWT secret. Check whether the deployment user is active, the password did not expire and the connected app still allows the user."
+    },
+    {
+      "id": "network-or-platform",
+      "category": "environment",
+      "pattern": "(?:ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|The client has timed out|UNKNOWN_EXCEPTION|Metadata API request failed|503 Service Unavailable|maintenance)",
+      "refs": {},
+      "title": "Network, timeout or platform problem",
+      "advice": "Not caused by the change. Re-run. If the deployment itself timed out, raise the wait time; the deployment may still be running in the org."
+    }
+  ]
+}

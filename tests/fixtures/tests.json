@@ -1,0 +1,162 @@
+{
+  "status": 1,
+  "result": {
+    "checkOnly": true,
+    "completedDate": "2026-11-20T12:53:17.000Z",
+    "createdBy": "005XX0000000000",
+    "createdByName": "Deploy User",
+    "createdDate": "2026-11-20T12:53:07.000Z",
+    "details": {
+      "componentSuccesses": [
+        {
+          "changed": true,
+          "componentType": "ApexClass",
+          "created": true,
+          "createdDate": "2026-11-20T12:53:15.000Z",
+          "deleted": false,
+          "fileName": "classes/DoctorOkService.cls",
+          "fullName": "DoctorOkService",
+          "id": "01pXX0000000000AAA",
+          "success": true
+        },
+        {
+          "changed": true,
+          "componentType": "ApexClass",
+          "created": true,
+          "createdDate": "2026-11-20T12:53:15.000Z",
+          "deleted": false,
+          "fileName": "classes/DoctorOkServiceTest.cls",
+          "fullName": "DoctorOkServiceTest",
+          "id": "01pXX0000000000AAA",
+          "success": true
+        },
+        {
+          "changed": true,
+          "componentType": "",
+          "created": false,
+          "createdDate": "2026-11-20T12:53:15.000Z",
+          "deleted": false,
+          "fileName": "package.xml",
+          "fullName": "package.xml",
+          "success": true
+        }
+      ],
+      "runTestResult": {
+        "codeCoverage": [
+          {
+            "id": "01pXX0000000000AAA",
+            "locationsCovered": {
+              "column": "0",
+              "line": "2",
+              "numExecutions": "0",
+              "time": "-1.0"
+            },
+            "locationsNotCovered": [
+              {
+                "column": 0,
+                "line": 3,
+                "numExecutions": 0,
+                "time": -1
+              }
+            ],
+            "name": "DoctorOkService",
+            "namespace": null,
+            "numLocations": 2,
+            "numLocationsNotCovered": 1,
+            "type": "Class",
+            "dmlInfo": [],
+            "methodInfo": [],
+            "soqlInfo": [],
+            "soslInfo": []
+          }
+        ],
+        "codeCoverageWarnings": [
+          {
+            "id": "01pXX0000000000",
+            "message": "Test coverage of selected Apex Class is 50%, at least 75% test coverage is required",
+            "name": "DoctorOkService",
+            "namespace": null
+          }
+        ],
+        "failures": [
+          {
+            "id": "01pXX0000000000AAA",
+            "message": "System.DmlException: Insert failed. First exception on row 0; first error: REQUIRED_FIELD_MISSING, Required fields are missing: [LastName]: [LastName]",
+            "methodName": "insertsAccount",
+            "name": "DoctorOkServiceTest",
+            "namespace": null,
+            "packageName": "DoctorOkServiceTest",
+            "stackTrace": "Class.DoctorOkServiceTest.insertsAccount: line 4, column 1",
+            "time": 614,
+            "type": "Class"
+          },
+          {
+            "id": "01pXX0000000000AAA",
+            "message": "System.AssertException: Assertion Failed: twice should double: Expected: 5, Actual: 4",
+            "methodName": "twiceDoubles",
+            "name": "DoctorOkServiceTest",
+            "namespace": null,
+            "packageName": "DoctorOkServiceTest",
+            "stackTrace": "Class.DoctorOkServiceTest.twiceDoubles: line 3, column 1",
+            "time": 128,
+            "type": "Class"
+          }
+        ],
+        "numFailures": 2,
+        "numTestsRun": 2,
+        "totalTime": 803,
+        "flowCoverage": [],
+        "flowCoverageWarnings": [],
+        "successes": []
+      },
+      "componentFailures": []
+    },
+    "done": true,
+    "id": "0AfXX0000000000AAA",
+    "ignoreWarnings": false,
+    "lastModifiedDate": "2026-11-20T12:53:17.000Z",
+    "numberComponentErrors": 0,
+    "numberComponentsDeployed": 2,
+    "numberComponentsTotal": 2,
+    "numberFiles": "6",
+    "numberTestErrors": 2,
+    "numberTestsCompleted": 0,
+    "numberTestsTotal": 2,
+    "rollbackOnError": true,
+    "runTestsEnabled": true,
+    "startDate": "2026-11-20T12:53:14.000Z",
+    "status": "Failed",
+    "success": false,
+    "zipSize": 1500,
+    "deployExtensionResults": [],
+    "files": [
+      {
+        "fullName": "DoctorOkService",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkService.cls"
+      },
+      {
+        "fullName": "DoctorOkService",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkService.cls-meta.xml"
+      },
+      {
+        "fullName": "DoctorOkServiceTest",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkServiceTest.cls"
+      },
+      {
+        "fullName": "DoctorOkServiceTest",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkServiceTest.cls-meta.xml"
+      }
+    ],
+    "zipFileCount": 6,
+    "deployUrl": "https://example.my.salesforce.com/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D0Afbm00000p4FZNCA2%26retURL%3D%252Fchangemgmt%252FmonitorDeployment.apexp"
+  },
+  "warnings": []
+}

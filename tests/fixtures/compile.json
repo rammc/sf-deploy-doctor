@@ -1,0 +1,198 @@
+{
+  "status": 1,
+  "result": {
+    "checkOnly": true,
+    "completedDate": "2026-11-20T12:52:21.000Z",
+    "createdBy": "005XX0000000000",
+    "createdByName": "Deploy User",
+    "createdDate": "2026-11-20T12:52:18.000Z",
+    "details": {
+      "componentFailures": [
+        {
+          "changed": false,
+          "columnNumber": 13,
+          "componentType": "CustomField",
+          "created": false,
+          "createdDate": "2026-11-20T12:52:19.000Z",
+          "deleted": false,
+          "fileName": "objects/Account.object",
+          "fullName": "Account.Doctor_Lookup__c",
+          "lineNumber": 3,
+          "problem": "referenceTo value of 'Doctor_Missing_Object__c' does not resolve to a valid sObject type",
+          "problemType": "Error",
+          "success": false
+        },
+        {
+          "changed": false,
+          "columnNumber": 21,
+          "componentType": "ApexClass",
+          "created": false,
+          "createdDate": "2026-11-20T12:52:20.000Z",
+          "deleted": false,
+          "fileName": "classes/DoctorBrokenService.cls",
+          "fullName": "DoctorBrokenService",
+          "lineNumber": 3,
+          "problem": "SELECT Id, Doctor_Missing_Field__c FROM Account\n           ^\nERROR at Row:1:Column:12\nNo such column 'Doctor_Missing_Field__c' on entity 'Account'. If you are attempting to use a custom field, be sure to append the '__c' after the custom field name. Please reference your WSDL or the describe call for the appropriate names.",
+          "problemType": "Error",
+          "success": false
+        },
+        {
+          "changed": false,
+          "columnNumber": 18,
+          "componentType": "ApexClass",
+          "created": false,
+          "createdDate": "2026-11-20T12:52:20.000Z",
+          "deleted": false,
+          "fileName": "classes/DoctorBrokenService.cls",
+          "fullName": "DoctorBrokenService",
+          "lineNumber": 4,
+          "problem": "Variable does not exist: Doctor_Missing_Field__c",
+          "problemType": "Error",
+          "success": false
+        },
+        {
+          "changed": false,
+          "componentType": "PermissionSet",
+          "created": false,
+          "createdDate": "2026-11-20T12:52:21.000Z",
+          "deleted": false,
+          "fileName": "permissionsets/Doctor_Access.permissionset",
+          "fullName": "Doctor_Access",
+          "problem": "In field: field - no CustomField named Account.Doctor_Other_Missing__c found",
+          "problemType": "Error",
+          "success": false
+        }
+      ],
+      "componentSuccesses": [
+        {
+          "changed": true,
+          "componentType": "ApexClass",
+          "created": true,
+          "createdDate": "2026-11-20T12:52:20.000Z",
+          "deleted": false,
+          "fileName": "classes/DoctorOkService.cls",
+          "fullName": "DoctorOkService",
+          "id": "01pXX0000000000AAA",
+          "success": true
+        },
+        {
+          "changed": true,
+          "componentType": "ApexClass",
+          "created": true,
+          "createdDate": "2026-11-20T12:52:20.000Z",
+          "deleted": false,
+          "fileName": "classes/DoctorOkServiceTest.cls",
+          "fullName": "DoctorOkServiceTest",
+          "id": "01pXX0000000000AAA",
+          "success": true
+        },
+        {
+          "changed": true,
+          "componentType": "",
+          "created": false,
+          "createdDate": "2026-11-20T12:52:21.000Z",
+          "deleted": false,
+          "fileName": "package.xml",
+          "fullName": "package.xml",
+          "success": true
+        }
+      ],
+      "runTestResult": {
+        "numFailures": 0,
+        "numTestsRun": 0,
+        "totalTime": 0,
+        "codeCoverage": [],
+        "codeCoverageWarnings": [],
+        "failures": [],
+        "flowCoverage": [],
+        "flowCoverageWarnings": [],
+        "successes": []
+      }
+    },
+    "done": true,
+    "id": "0AfXX0000000000AAA",
+    "ignoreWarnings": false,
+    "lastModifiedDate": "2026-11-20T12:52:21.000Z",
+    "numberComponentErrors": 4,
+    "numberComponentsDeployed": 2,
+    "numberComponentsTotal": 6,
+    "numberFiles": "12",
+    "numberTestErrors": 0,
+    "numberTestsCompleted": 0,
+    "numberTestsTotal": 0,
+    "rollbackOnError": true,
+    "runTestsEnabled": false,
+    "startDate": "2026-11-20T12:52:18.000Z",
+    "status": "Failed",
+    "success": false,
+    "zipSize": 3097,
+    "deployExtensionResults": [],
+    "files": [
+      {
+        "fullName": "DoctorBrokenService",
+        "type": "ApexClass",
+        "state": "Failed",
+        "problemType": "Error",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorBrokenService.cls",
+        "lineNumber": 4,
+        "columnNumber": 18,
+        "error": "Variable does not exist: Doctor_Missing_Field__c (4:18)"
+      },
+      {
+        "fullName": "DoctorBrokenService",
+        "type": "ApexClass",
+        "state": "Failed",
+        "problemType": "Error",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorBrokenService.cls",
+        "lineNumber": 3,
+        "columnNumber": 21,
+        "error": "SELECT Id, Doctor_Missing_Field__c FROM Account\n           ^\nERROR at Row:1:Column:12\nNo such column 'Doctor_Missing_Field__c' on entity 'Account'. If you are attempting to use a custom field, be sure to append the '__c' after the custom field name. Please reference your WSDL or the describe call for the appropriate names. (3:21)"
+      },
+      {
+        "fullName": "DoctorOkService",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkService.cls"
+      },
+      {
+        "fullName": "DoctorOkService",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkService.cls-meta.xml"
+      },
+      {
+        "fullName": "DoctorOkServiceTest",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkServiceTest.cls"
+      },
+      {
+        "fullName": "DoctorOkServiceTest",
+        "type": "ApexClass",
+        "state": "Created",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/classes/DoctorOkServiceTest.cls-meta.xml"
+      },
+      {
+        "fullName": "Account.Doctor_Lookup__c",
+        "type": "CustomField",
+        "state": "Failed",
+        "problemType": "Error",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/objects/Account/fields/Doctor_Lookup__c.field-meta.xml",
+        "lineNumber": 3,
+        "columnNumber": 13,
+        "error": "referenceTo value of 'Doctor_Missing_Object__c' does not resolve to a valid sObject type (3:13)"
+      },
+      {
+        "fullName": "Doctor_Access",
+        "type": "PermissionSet",
+        "state": "Failed",
+        "problemType": "Error",
+        "filePath": "/home/runner/work/sample/sample/force-app/main/default/permissionsets/Doctor_Access.permissionset-meta.xml",
+        "error": "In field: field - no CustomField named Account.Doctor_Other_Missing__c found"
+      }
+    ],
+    "zipFileCount": 12,
+    "deployUrl": "https://example.my.salesforce.com/lightning/setup/DeployStatus/page?address=%2Fchangemgmt%2FmonitorDeploymentsDetails.apexp%3FasyncId%3D0Afbm00000p3hENCAY%26retURL%3D%252Fchangemgmt%252FmonitorDeployment.apexp"
+  },
+  "warnings": []
+}
