@@ -10,7 +10,7 @@ A second workflow, the **pre-flight**, looks at a pull request before anything i
 
 Both run as [GitHub Agentic Workflows](https://github.com/github/gh-aw) in your own repository, are read-only by design, and install with one command each.
 
-> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md), [pre-flight with many risks](docs/example-preflight-combined.md)). They have not been used on a production pipeline yet. Expect changes.
+> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md), [pre-flight with many risks](docs/example-preflight-combined.md), [pre-flight for a Lightning web component](docs/example-preflight-lwc.md)). They have not been used on a production pipeline yet. Expect changes.
 
 ## 😵 The problem
 
@@ -121,7 +121,7 @@ The cheapest failed deployment is the one that never starts. The pre-flight work
 | `destructive-change` | medium / low | A component is deleted from the source; fields and objects take their data with them |
 | `profile-change`, `package-reference` | low | Profiles in the change, references to managed package components |
 
-Lightning web components gain the most from this. Salesforce reports a broken import one component at a time: fix the first, deploy again, meet the second. The pre-flight lists all of them at once, before the first deployment.
+Lightning web components gain the most from this. An org does not report all broken imports of a deployment at once: in the test run behind [this example](docs/example-preflight-lwc.md) the validation named two of four problems, and the other two would have appeared only after a fix and another attempt. The pre-flight listed all four before the first deployment.
 
 The signals come from the source alone, so the pre-flight needs no org and no credentials. It says what the diff shows, not what an org will do, and it never approves or blocks a pull request. A pull request without signals gets no comment at all.
 

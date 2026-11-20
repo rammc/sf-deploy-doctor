@@ -620,8 +620,8 @@ def build(root: Path, base: str, head: str) -> dict:
             "reference-not-in-source": "The name is not defined anywhere in the repository. It may still exist in "
                                        "the org (created by hand, standard feature, unmanaged leftovers).",
             "apex-method-not-exposed": "A Lightning component imports an Apex method that the class in the source "
-                                       "does not declare, or declares without @AuraEnabled. Salesforce reports such "
-                                       "errors one component at a time, so a deployment shows only the first.",
+                                       "does not declare, or declares without @AuraEnabled. An org reports such "
+                                       "errors only in part, so a failed deployment rarely shows all of them.",
         },
     }
 

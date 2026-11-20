@@ -41,7 +41,7 @@
         "name": 1
       },
       "title": "A Lightning component imports an Apex class the target org does not have",
-      "advice": "Deploy the class together with the component, or correct the class name in the `@salesforce/apex/...` import. Salesforce reports these errors one component at a time, so more may follow after this one is fixed."
+      "advice": "Deploy the class together with the component, or correct the class name in the `@salesforce/apex/...` import. An org does not report all broken imports at once, so more may follow after this one is fixed."
     },
     {
       "id": "lwc-missing-apex-method",
@@ -57,7 +57,7 @@
     {
       "id": "lwc-missing-module",
       "category": "missing-dependency",
-      "pattern": "No MODULE named markup://[A-Za-z0-9_]+:([A-Za-z0-9_]+) found",
+      "pattern": "No MODULE named (?:markup://)?[A-Za-z0-9_]+[:/]([A-Za-z0-9_]+) found",
       "refs": {
         "name": 1
       },

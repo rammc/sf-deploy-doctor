@@ -172,6 +172,12 @@ class Classification(unittest.TestCase):
         channel = dc.classify("descriptor: markup://c:__LightningMessageChannel__Refresh__c", CATALOG)
         self.assertEqual(channel["refs"], {"name": "Refresh"})
 
+    def test_aura_descriptors_do_not_look_like_urls(self):
+        text = dc.redact("No MODULE named markup://c:noSuchChildXyz found : [markup://c:probeChild]")
+        self.assertEqual(text, "No MODULE named c/noSuchChildXyz found : [c/probeChild]")
+        found = dc.classify(text, CATALOG)
+        self.assertEqual((found["patternId"], found["refs"]), ("lwc-missing-module", {"name": "noSuchChildXyz"}))
+
     def test_usernames_and_ids_are_redacted(self):
         text = dc.redact("deploy as jane.doe@example.com failed on 005XX0000012345AAA")
         self.assertNotIn("jane.doe", text)
