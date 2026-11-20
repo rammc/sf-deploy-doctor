@@ -32,23 +32,28 @@ Four errors. How many causes? Did this pull request break it, or was the org alr
 
 ## 💡 What you get instead
 
-Deploy Doctor does that reading and answers on the pull request. This is what it wrote for the log above, in a live run against a sandbox:
+Deploy Doctor does that reading and answers on the pull request. This is what it wrote for the log above in a live run against a sandbox, shortened to the summary and one of three causes:
 
 > **Summary**
 >
-> This was a check-only validation of branch `feat/account-score` that failed. All four component failures are the same kind of problem: metadata added or changed on this branch refers to custom fields, a custom object, and an Apex class that do not exist anywhere in this repository. This is not an org-drift or environment issue; it is incomplete metadata on this branch, and the author of the change needs to act.
+> This validation (check-only, dry run) failed because the deployment references three components that do not exist anywhere in the repository: the custom object `Doctor_Missing_Object__c`, and two custom fields, `Account.Doctor_Missing_Field__c` and `Account.Doctor_Other_Missing__c`. All four reported failures are missing-dependency errors, and all of them trace back to files changed in this run, so the change itself is the cause, not the target org. Fix this by either adding the missing object/field metadata to the deployment or correcting the names if they were meant to reference something else.
 >
-> **Totals:** 4 component failures (4 missing-dependency), 0 test failures, 0 coverage warnings, 0 other errors.
+> `componentFailures: 4` · `testFailures: 0` · `coverageWarnings: 0` · `otherErrors: 0` · `2/6` components deployed — run #2
 >
-> **2. New class `DoctorBrokenService` queries and reads a field that does not exist — `Account.Doctor_Missing_Field__c`**
+> **2. `DoctorBrokenService` queries and reads a field that does not exist on `Account`**
 >
-> `DoctorBrokenService.cls` (new in this run) runs `SELECT Id, Doctor_Missing_Field__c FROM Account` (line 3) and then reads `a.Doctor_Missing_Field__c` (line 4). No field with that API name exists in the repository under `objects/Account/fields`. The two reported errors are a single root cause: the second is a direct consequence of the first. Confidence: high. Next step: add the `Account.Doctor_Missing_Field__c` field to the deployment if it is meant to exist, or correct the field name in `DoctorBrokenService.cls` if it was meant to reference an existing field.
+> `force-app/main/default/classes/DoctorBrokenService.cls:3` runs `SELECT Id, Doctor_Missing_Field__c FROM Account`, and line 4 reads `a.Doctor_Missing_Field__c`. There is no `Doctor_Missing_Field__c` field under `force-app/main/default/objects/Account/fields/` (only `Doctor_Lookup__c` exists there), so this field is missing from the repository entirely, not merely excluded from this deployment. This class was changed in this run. Confidence: high.
+> Next step: add the `Account.Doctor_Missing_Field__c` field metadata to the deployment, or update `DoctorBrokenService.cls` to use the correct field name.
 >
-> **3. Permission set `Doctor_Access` grants access to a field that does not exist — `Account.Doctor_Other_Missing__c`**
+> **Follow-up errors**
 >
-> [...] A related, not-yet-surfaced problem in the same file: `Doctor_Access.permissionset-meta.xml` also grants class access to `DoctorNoSuchClass`, and no Apex class by that name exists in the repository either. This did not appear as a reported error in this run, but it will very likely fail the same way once the field-permission issue above is fixed. Recommend fixing it in the same pass.
+> - The `Variable does not exist: Doctor_Missing_Field__c` Apex compile error on `DoctorBrokenService.cls:4` is a direct follow-up of cause 2 (the SOQL failure on line 3) and will disappear once that field is added or the query is corrected.
+>
+> **Not explained**
+>
+> `Doctor_Access.permissionset-meta.xml` also lists `<classAccesses><apexClass>DoctorNoSuchClass</apexClass></classAccesses>` (line 4), referencing an Apex class that is not present in `force-app/main/default/classes`. This was not reported among the four failures in this run's log, possibly because validation stopped reporting further errors for this component after the field-permission error above. Worth checking once cause 3 is fixed, since it looks like it would fail the same way.
 
-Four errors became three causes with one owner, and the report names a fifth problem the org had not even reported yet. The full text is in [docs/example-report.md](docs/example-report.md).
+Four errors became three causes with one owner. The last paragraph is a fifth problem that the org had not reported yet; the doctor found it while reading the permission set. The full, unedited report is in [docs/example-report.md](docs/example-report.md).
 
 ## ⚙️ How it works
 
