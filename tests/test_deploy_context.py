@@ -59,6 +59,25 @@ class ParseHumanLog(unittest.TestCase):
         # the log repeats the progress line (0/6, 3/6, 2/6); the last one counts
         self.assertEqual((parsed["deployment"]["componentsDeployed"], parsed["deployment"]["componentsTotal"]), (2, 6))
 
+    def test_ci_log_with_failed_tests_but_without_their_details(self):
+        """In CI the CLI prints 'Failing: 2' and nothing about which tests failed."""
+        parsed = dc.parse_log((FIXTURES / "tests-ci-job.log").read_text())
+        self.assertEqual(parsed["deployment"]["tests"], {"passing": 0, "failing": 2, "total": 2})
+        self.assertEqual(parsed["testFailures"], [])
+        ctx = dc.enrich(parsed, None, None, None, CATALOG)
+        self.assertEqual(ctx["totals"]["testFailures"], 2)
+        self.assertEqual(ctx["totals"]["testFailuresWithDetails"], 0)
+        self.assertEqual(ctx["detailsMissing"][0]["what"], "testFailures")
+        self.assertIn("deploy report", ctx["detailsMissing"][0]["fix"])
+        self.assertEqual(len(ctx["coverageWarnings"]), 1)
+
+    def test_no_details_missing_when_the_result_is_complete(self):
+        for parsed in (dc.parse_log((FIXTURES / "tests-human.log").read_text()),
+                       dc.parse_result_json(json.loads((FIXTURES / "tests.json").read_text()))):
+            ctx = dc.enrich(parsed, None, None, None, CATALOG)
+            self.assertEqual(ctx["detailsMissing"], [])
+            self.assertEqual(ctx["totals"]["testFailures"], 2)
+
     def test_test_failures_and_coverage(self):
         parsed = dc.parse_log((FIXTURES / "tests-human.log").read_text())
         self.assertEqual([t["test"] for t in parsed["testFailures"]],
