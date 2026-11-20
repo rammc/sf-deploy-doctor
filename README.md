@@ -148,6 +148,18 @@ The doctor does not replace or wrap your deployment. It only needs the output of
 
 If the log contains the `--json` result of the deploy command, the doctor uses that instead of the human-readable table.
 
+### Recommended: print the deploy report on failure
+
+In CI the Salesforce CLI runs without a terminal, and then it reports *how many* Apex tests failed but not *which ones* or why. Add one step after your deployment so the full result lands in the log:
+
+```yaml
+- name: Deploy report for Deploy Doctor
+  if: failure()
+  run: sf project deploy report --use-most-recent --json || true
+```
+
+Deploy Doctor picks the result up from the log. Without this step it still diagnoses component failures and coverage, and for failed tests it tells you that the details are missing and how to add them, instead of guessing.
+
 ## 🔐 Security model
 
 - **No org access.** The agent never receives credentials for Salesforce and cannot call the org. Only your existing deploy workflow talks to it.

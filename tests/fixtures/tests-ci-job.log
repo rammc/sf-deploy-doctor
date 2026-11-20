@@ -1,0 +1,36 @@
+2026-11-20T14:42:13.2504834Z ───── Deploying Metadata (dry-run) ─────
+2026-11-20T14:42:13.2506082Z Stages:
+2026-11-20T14:42:13.2523773Z 1. Preparing
+2026-11-20T14:42:13.2543863Z 2. Waiting for the org to respond
+2026-11-20T14:42:13.2553864Z 3. Deploying Metadata
+2026-11-20T14:42:13.2554563Z 4. Running Tests
+2026-11-20T14:42:13.2555171Z 5. Updating Source Tracking
+2026-11-20T14:42:13.2555838Z 6. Done
+2026-11-20T14:42:13.2556286Z 
+2026-11-20T14:42:13.2557168Z ▶ Preparing…
+2026-11-20T14:42:13.2558354Z    Deploying (dry-run) v67.0 metadata to deploy-user@example.com using the v68.0 SOAP API.
+2026-11-20T14:42:13.2559556Z    Deploy ID: 0AfXX0000000000AAA
+2026-11-20T14:42:13.2560265Z    Target Org: deploy-user@example.com
+2026-11-20T14:42:13.4561224Z ✔ Preparing (203ms)
+2026-11-20T14:42:13.4562567Z ▶ Waiting for the org to respond…
+2026-11-20T14:42:14.6994335Z ✔ Waiting for the org to respond (1.24s)
+2026-11-20T14:42:14.7003336Z ▶ Deploying Metadata…
+2026-11-20T14:42:14.7004011Z    Components: 2/2 (100%)
+2026-11-20T14:42:15.8693791Z ✘ Deploying Metadata (1.16s)
+2026-11-20T14:42:15.8694262Z 
+2026-11-20T14:42:15.8696949Z Deploying (dry-run) v67.0 metadata to deploy-user@example.com using the v68.0 SOAP API.
+2026-11-20T14:42:15.8698155Z Status: Failed
+2026-11-20T14:42:15.8698686Z Deploy ID: 0AfXX0000000000AAA
+2026-11-20T14:42:15.8699418Z Target Org: deploy-user@example.com
+2026-11-20T14:42:15.8700015Z 
+2026-11-20T14:42:15.8700553Z Elapsed time: 2.61s
+2026-11-20T14:42:15.8704641Z 
+2026-11-20T14:42:15.8705516Z [34m[1mTest Results Summary[22m[39m
+2026-11-20T14:42:15.8706275Z Passing: 0
+2026-11-20T14:42:15.8706834Z Failing: 2
+2026-11-20T14:42:15.8707310Z Total: 2
+2026-11-20T14:42:15.8707779Z Time: 310
+2026-11-20T14:42:15.8727882Z  ›   Warning: DoctorOkService - Test coverage of selected Apex Class is 50%, at
+2026-11-20T14:42:15.8728891Z  ›    least 75% test coverage is required
+2026-11-20T14:42:15.8737734Z [1m[32mDry-run complete.[39m[22m
+2026-11-20T14:42:16.5475995Z ##[error]Process completed with exit code 1.

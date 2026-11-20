@@ -195,6 +195,10 @@ def parse_log(text: str) -> dict:
     if progress:
         dep["testsCompleted"], dep["testsTotal"] = int(progress[-1][0]), int(progress[-1][1])
 
+    summary = re.search(r"Test Results Summary\s+Passing:\s*(\d+)\s+Failing:\s*(\d+)\s+Total:\s*(\d+)", joined)
+    if summary:
+        dep["tests"] = {"passing": int(summary.group(1)), "failing": int(summary.group(2)), "total": int(summary.group(3))}
+
     i = 0
     while i < len(lines):
         line = lines[i].strip()
@@ -285,6 +289,8 @@ def parse_result_json(data: dict) -> dict:
             "componentsTotal": result.get("numberComponentsTotal"),
             "testsCompleted": result.get("numberTestsCompleted"),
             "testsTotal": result.get("numberTestsTotal"),
+            "tests": {"passing": int(rt.get("numTestsRun") or 0) - int(rt.get("numFailures") or 0),
+                      "failing": int(rt.get("numFailures") or 0), "total": int(rt.get("numTestsRun") or 0)},
         },
         "componentFailures": [], "testFailures": [], "coverageWarnings": [], "otherErrors": [],
     }
@@ -467,12 +473,27 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
     if "logTail" in parsed:
         parsed["logTail"] = [redact(l)[:300] for l in parsed["logTail"]]
 
+    # Without a terminal the CLI prints how many tests failed but not which ones.
+    failing = (parsed["deployment"].get("tests") or {}).get("failing", 0)
+    parsed["detailsMissing"] = []
+    if failing > len(parsed["testFailures"]):
+        parsed["detailsMissing"].append({
+            "what": "testFailures",
+            "reported": failing,
+            "withDetails": len(parsed["testFailures"]),
+            "why": "The log states the number of failed tests but not their names and messages. "
+                   "The Salesforce CLI leaves these details out when it runs without a terminal.",
+            "fix": "Add a step after the deployment that prints the full result into the log: "
+                   "`sf project deploy report --use-most-recent --json` with `if: failure()`. "
+                   "Deploy Doctor reads that result on the next failure.",
+        })
     by_category: dict[str, int] = {}
     for item in parsed["componentFailures"] + parsed["testFailures"] + parsed["coverageWarnings"] + parsed["otherErrors"]:
         by_category[item["category"]] = by_category.get(item["category"], 0) + 1
     parsed["totals"] = {
         "componentFailures": len(parsed["componentFailures"]),
-        "testFailures": len(parsed["testFailures"]),
+        "testFailures": max(len(parsed["testFailures"]), failing),
+        "testFailuresWithDetails": len(parsed["testFailures"]),
         "coverageWarnings": len(parsed["coverageWarnings"]),
         "otherErrors": len(parsed["otherErrors"]),
         "byCategory": by_category,
