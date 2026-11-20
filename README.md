@@ -10,7 +10,7 @@ A second workflow, the **pre-flight**, looks at a pull request before anything i
 
 Both run as [GitHub Agentic Workflows](https://github.com/github/gh-aw) in your own repository, are read-only by design, and install with one command each.
 
-> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md)). They have not been used on a production pipeline yet. Expect changes.
+> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md), [pre-flight with many risks](docs/example-preflight-combined.md)). They have not been used on a production pipeline yet. Expect changes.
 
 ## 😵 The problem
 
@@ -148,6 +148,10 @@ This is the unedited comment on the sample change from the top of this page, wri
 > - Does `Account.Doctor_Other_Missing__c` already exist in the target org?
 > - Does the Apex class `DoctorNoSuchClass` already exist in the target org?
 > - Is there a test class elsewhere (not in this PR) that already covers `DoctorBrokenService`?
+
+A second, larger example shows the other rules at work: a pull request that deletes a class and a field still in use, changes a field type, makes a field required and adds a validation rule. The pre-flight names the two existing tests that will break, although no signal pointed at them; it found them by reading the source. See [docs/example-preflight-combined.md](docs/example-preflight-combined.md).
+
+A harmless pull request in the same test produced no signal, no agent run and no comment.
 
 ## 🚀 Quick start
 
