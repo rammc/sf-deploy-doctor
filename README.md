@@ -163,8 +163,8 @@ A harmless pull request in the same test produced no signal, no agent run and no
 
 ```bash
 gh extension install github/gh-aw
-gh aw add rammc/sf-deploy-doctor/deploy-doctor      # diagnose failed deployments
-gh aw add rammc/sf-deploy-doctor/deploy-preflight   # assess pull requests before deployment
+gh aw add rammc/sf-deploy-doctor/deploy-doctor@v0.1.0      # diagnose failed deployments
+gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.1.0   # assess pull requests before deployment
 ```
 
 Each command adds one workflow file under `.github/workflows`. The pre-flight works as it is if your metadata lives in `force-app`; otherwise adapt `paths` in its frontmatter. For the doctor, open `deploy-doctor.md` and adapt the trigger:
@@ -196,6 +196,16 @@ From now on every failed run of the listed workflows gets a diagnosis. To examin
 ```bash
 gh workflow run deploy-doctor.lock.yml -f run_id=1234567890
 ```
+
+### Versions and updates
+
+The commands above install a tagged release. The installed workflow checks out the context builders at the same tag, so nothing in your pipeline changes until you decide to update:
+
+```bash
+gh aw update            # move the installed workflows to the latest release
+```
+
+`gh aw update` merges the new version with your local changes, such as the adapted trigger, and recompiles. What changed between releases is listed in the [changelog](CHANGELOG.md).
 
 ## 🧩 Works with your pipeline
 
