@@ -42,6 +42,23 @@ class ParseHumanLog(unittest.TestCase):
         self.assertIn("No such column 'Doctor_Missing_Field__c' on entity 'Account'", soql["problem"])
         self.assertEqual((soql["line"], soql["column"]), (3, 21))
 
+    def test_plain_table_of_a_ci_job_log(self):
+        """Without a terminal the CLI prints a position-aligned table, not a box."""
+        parsed = dc.parse_log((FIXTURES / "compile-ci-job.log").read_text())
+        found = [(f["type"], f["name"], f["line"], f["column"]) for f in parsed["componentFailures"]]
+        self.assertEqual(found, [
+            ("CustomField", "Account.Doctor_Lookup__c", 3, 13),
+            ("ApexClass", "DoctorBrokenService", 3, 21),
+            ("ApexClass", "DoctorBrokenService", 4, 18),
+            ("PermissionSet", "Doctor_Access", None, None),
+        ])
+        self.assertIn("No such column 'Doctor_Missing_Field__c' on entity 'Account'", parsed["componentFailures"][1]["problem"])
+        self.assertTrue(parsed["componentFailures"][0]["problem"].endswith("valid sObject type"))
+        enriched = dc.enrich(parsed, None, None, None, CATALOG)
+        self.assertEqual(enriched["totals"]["byCategory"], {"missing-dependency": 4})
+        # the log repeats the progress line (0/6, 3/6, 2/6); the last one counts
+        self.assertEqual((parsed["deployment"]["componentsDeployed"], parsed["deployment"]["componentsTotal"]), (2, 6))
+
     def test_test_failures_and_coverage(self):
         parsed = dc.parse_log((FIXTURES / "tests-human.log").read_text())
         self.assertEqual([t["test"] for t in parsed["testFailures"]],
