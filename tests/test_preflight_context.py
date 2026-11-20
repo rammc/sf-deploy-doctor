@@ -109,6 +109,24 @@ class Preflight(unittest.TestCase):
         self.assertEqual(severity, {"ApexClass:Legacy": "low", "CustomField:Account.Old__c": "medium"})
         self.assertEqual(ctx["summary"]["deleted"], 2)
 
+    def test_deleted_and_added_class_with_identical_meta_files_are_not_a_rename(self):
+        meta = "<ApexClass><apiVersion>67.0</apiVersion></ApexClass>\n"
+        write(self.repo, f"{D}/classes/Legacy.cls-meta.xml", meta)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "meta")
+        git(self.repo, "switch", "-q", "main")
+        git(self.repo, "merge", "-q", "change")
+        git(self.repo, "switch", "-q", "change")
+        (self.repo / f"{D}/classes/Legacy.cls").unlink()
+        (self.repo / f"{D}/classes/Legacy.cls-meta.xml").unlink()
+        write(self.repo, f"{D}/classes/Exporter.cls", "public class Exporter {}\n")
+        write(self.repo, f"{D}/classes/Exporter.cls-meta.xml", meta)
+        ctx = self.run_preflight()
+        changes = {(c["name"], c["change"]) for c in ctx["components"]}
+        self.assertEqual(changes, {("Legacy", "deleted"), ("Exporter", "added")})
+        self.assertEqual(sum(s["rule"] == "apex-without-test" for s in ctx["signals"]), 1)
+        self.assertTrue(next(c for c in ctx["components"] if c["name"] == "Exporter")["file"].endswith("Exporter.cls"))
+
     def test_field_changes(self):
         write(self.repo, f"{D}/objects/Account/fields/Code__c.field-meta.xml", field("Text", "<unique>true</unique>\n"))
         write(self.repo, f"{D}/objects/Account/fields/Known__c.field-meta.xml", field("Text", "<required>true</required>\n"))
