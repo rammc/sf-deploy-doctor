@@ -222,6 +222,11 @@ gh aw update            # move the installed workflows to the latest release
 
 `gh aw update` merges the new version with your local changes, such as the trigger the setup script wrote, and recompiles. What changed between releases is listed in the [changelog](CHANGELOG.md).
 
+Two things to know:
+
+- gh-aw lets a new release rest for seven days before `gh aw update` offers it, as a protection against a compromised release. `gh aw update --cool-down 0` takes it at once.
+- If an update reports a conflict in `deploy-doctor.md`, a release changed a line next to your trigger. Keep the upstream side of the conflict, run the setup script again with `--write` and compile. The update from 0.1.0 to 0.2.0 does this once; the trigger block is kept stable from 0.2.0 on.
+
 ### If something does not work
 
 | What you see | Why | What to do |
