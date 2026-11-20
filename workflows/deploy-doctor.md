@@ -39,6 +39,10 @@ permissions:
 
 timeout-minutes: 15
 
+# One slot per failed run, so two failures at the same time are both diagnosed.
+concurrency:
+  job-discriminator: ${{ github.event.workflow_run.id || github.event.inputs.run_id }}
+
 network: defaults
 
 tools:
