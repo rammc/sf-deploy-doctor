@@ -189,17 +189,43 @@ Merge the commit to your default branch. From then on every failed run of your d
 
 </details>
 
-### Choose the AI engine
+### The AI model and its configuration
 
-The workflows run on any engine gh-aw supports. Copilot is the default; pass `--engine` to `gh aw add` for another one, or set `engine:` in the frontmatter of both workflow files and compile again.
+GitHub Agentic Workflows is the frame: trigger, sandbox, checked outputs. The thinking is done by an engine, a coding agent with a language model behind it, and someone has to provide that model. Agentic Workflows is available on every GitHub plan; the model is not included. There are three ways to provide it:
 
-| Engine | Install with | Secret |
+| Way | What you need | Who pays |
 | --- | --- | --- |
-| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.6.0` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
-| Claude | `gh aw add rammc/sf-deploy-doctor@v0.6.0 --engine claude` | `ANTHROPIC_API_KEY` |
-| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.6.0 --engine codex` | shown by `gh aw secrets bootstrap` |
+| **Copilot through your organisation** | A Copilot subscription of the organisation, the Copilot policy "Allow use of Copilot CLI billed to the organization", and `copilot-requests: write` under `permissions:` in both workflow files. No token, no secret | The organisation, in AI credits |
+| **Copilot through a personal account** | The secret `COPILOT_GITHUB_TOKEN`: a fine-grained personal access token whose resource owner is the user account (not an organisation), with the account permission "Copilot Requests: Read". The account needs an active Copilot licence | The allowance of that account |
+| **Your own provider** (Claude, Codex) | The API key of the provider as a secret: `ANTHROPIC_API_KEY` for Claude; `gh aw secrets bootstrap` shows the name for the others | Your account at the provider |
 
-The examples on this page were written with Claude. With an engine other than Copilot, `gh aw add` prints a notice about a new restricted secret; it tells you that the workflow will read that secret, which is what you asked for.
+Copilot is the default engine. Choose another one when you install, or later in the frontmatter of both workflow files:
+
+```bash
+gh aw add rammc/sf-deploy-doctor@v0.6.0                    # Copilot
+gh aw add rammc/sf-deploy-doctor@v0.6.0 --engine claude    # Claude
+```
+
+```yaml
+# .github/workflows/deploy-doctor.md and deploy-preflight.md, then: gh aw compile
+engine:
+  id: claude            # copilot, claude, codex
+  model: claude-sonnet-5-5   # optional; without it the engine picks its default
+
+max-ai-credits: 1000    # optional; the most one run may spend (gh-aw default: 1000)
+```
+
+| Setting | Where | What it does |
+| --- | --- | --- |
+| `engine` or `engine.id` | frontmatter | Which coding agent runs |
+| `engine.model` | frontmatter | The model. Names differ per engine; for Copilot they are the ones your Copilot plan offers |
+| `permissions: copilot-requests: write` | frontmatter | Copilot billed to the organisation instead of a token |
+| `max-ai-credits` | frontmatter | Upper limit of one run. `gh aw logs` shows what the runs used, `gh aw forecast` estimates a month |
+| `timeout-minutes` | frontmatter | How long the agent may run; fifteen minutes by default |
+
+The task is small for a model: one context file and at most ten source files. A mid-size model is enough; the examples on this page were written with Claude Sonnet, at roughly 0.25 USD per diagnosis. All live runs so far used Claude. The Copilot engine has not completed a run in the test repository of this project yet: a personal account without the organisation path was first refused (`not authorized to use this Copilot feature`) and then got no answer from the model (`502`). Treat Copilot as untested here and tell us how it goes.
+
+With an engine other than Copilot, `gh aw add` prints a notice about a new restricted secret; it tells you that the workflow will read that secret, which is what you asked for. If no model is available to you at all, or your code may not leave the organisation, the scripts work without an agent, see "Use the analysis without the agent" further down.
 
 ### Try it on a run that already failed
 
@@ -260,6 +286,8 @@ The doctor reads the file from the deployed commit. The pre-flight reads it from
 | `CTR-021 ... workflow_run lacks positive branch scope` on compile | gh-aw does not accept a bare wildcard such as `**` for the branches | Use names or scoped patterns: `main`, `feature/**`, `PROJ-*` |
 | The doctor reports that test details are missing | In CI the Salesforce CLI prints how many tests failed, not which | Add the report step under [Works with your pipeline](#-works-with-your-pipeline) |
 | The run fails in the agent job with an authentication error | The secret of the engine is missing or expired | `gh aw secrets bootstrap` |
+| `Copilot organization billing is unavailable` | The workflow asks for `copilot-requests: write`, but the repository belongs to a personal account or the organisation has not switched on central billing | Use `COPILOT_GITHUB_TOKEN` instead, or have the Copilot policy enabled |
+| `models fetch returned 401` or `403` with the Copilot engine | 401: the token is invalid or not a fine-grained token. 403 `not authorized to use this Copilot feature`: the account behind the token has no Copilot licence that covers the Copilot CLI, or the permission "Copilot Requests" is missing | Check the token and the Copilot plan of its owner. The answer of GitHub is in the run artifact `agent`, file `upstream-errors.jsonl` |
 | No pre-flight comment on a pull request | The diff carries no signal, or it touches no file under the path filter. Both are intended: no finding, no comment | Check `paths:` in `deploy-preflight.md` if your metadata lives elsewhere |
 | The pre-flight leaves no comment on a pull request | The diff carries low signals only, or none | Intended. Set `preflight.minSeverity` to `low` in `.github/deploy-doctor.json` if you want a comment for those too |
 | An open report was closed when a newer one arrived | When there is no pull request, the doctor opens an issue and closes the older issue about the same deploy workflow | If one workflow deploys to several orgs in separate runs and you want one open report per org, set `close-older-issues: false` in `deploy-doctor.md`. The key that decides which report is replaced cannot carry the org |
