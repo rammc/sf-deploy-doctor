@@ -84,7 +84,7 @@ Because a log alone cannot answer the question that matters: *is it my change or
 | Fact | What it tells you |
 | --- | --- |
 | `sourceFile` | Which file in the repository the failing component is. |
-| `changedInThisRun` | Whether that file changed in what this run deployed. For a pull request that is the pull request. For a push or a manual run it is everything since the same workflow last succeeded on that branch, so a release branch with forty commits is compared as a whole. If there is nothing to compare with, the value is unknown and the agent is told not to guess. |
+| `changedInThisRun` | Whether that file changed in what this run deployed. For a pull request that is the pull request. For a push or a manual run it is everything since the same workflow last succeeded on that branch, so a release branch with forty commits is compared as a whole. An earlier run only counts if it deployed to the same environment: the last green run to UAT is not the base for a failed run to production. If there is nothing to compare with, the value is unknown and the agent is told not to guess. |
 | `reference.inRepository` | For a missing dependency: whether the missing component exists in the source at all. If yes, it did not reach the org (delta too narrow, manifest, `.forceignore`, field-level security). If no, it lives only in another org or the name is wrong. |
 
 The agent never counts and never parses. Numbers in the report come from the context file, and the same log always produces the same context.
@@ -105,7 +105,7 @@ The catalog (`doctor/catalog.json`) currently holds 53 patterns in seven categor
 
 ## 🛫 Pre-flight: before the deployment
 
-The cheapest failed deployment is the one that never starts. The pre-flight workflow runs on every pull request that touches metadata. A script reads the diff and collects signals. The agent only wakes up if at least one of them is medium or high; it then checks each signal against the source and writes one comment with a verdict. Low signals alone cost nothing and produce no comment. To change the threshold, edit `--min-severity` in `deploy-preflight.md` and compile again.
+The cheapest failed deployment is the one that never starts. The pre-flight workflow runs on every pull request that touches metadata. A script reads the diff and collects signals. The agent only wakes up if at least one of them is medium or high; it then checks each signal against the source and writes one comment with a verdict. Low signals alone cost nothing and produce no comment. To change the threshold, set `preflight.minSeverity` in the [configuration file](#configuration-file-optional).
 
 | Signal | Severity | What it catches |
 | --- | --- | --- |
@@ -166,7 +166,7 @@ Run these in the root of your Salesforce repository:
 ```bash
 # 1. Install both workflows and the setup script
 gh extension install github/gh-aw
-gh aw add rammc/sf-deploy-doctor@v0.5.2
+gh aw add rammc/sf-deploy-doctor@v0.6.0
 
 # 2. Let the setup script find your deploy workflows, branches and package directories
 python3 .github/aw/deploy-doctor/setup.py            # shows what it found
@@ -183,7 +183,7 @@ Merge the commit to your default branch. From then on every failed run of your d
 <details>
 <summary><b>What each step does</b></summary>
 
-1. `gh aw add` copies `deploy-doctor.md` and `deploy-preflight.md` to `.github/workflows`, compiles them to `.lock.yml` files and puts the setup script under `.github/aw/deploy-doctor`. To install only one of the two, name it: `gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.5.2`.
+1. `gh aw add` copies `deploy-doctor.md` and `deploy-preflight.md` to `.github/workflows`, compiles them to `.lock.yml` files and puts the setup script under `.github/aw/deploy-doctor`. To install only one of the two, name it: `gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.6.0`.
 2. The setup script reads `.github/workflows` and `sfdx-project.json`. It looks for workflows that run `sf project deploy`, the older `sfdx force:source:deploy`, sfp or a deploy action, also behind reusable workflows, local actions and shell scripts. It writes their names and the branch patterns of your repository into the trigger of the doctor, and your package directories into the path filter of the pre-flight. It changes nothing else and sends nothing anywhere. If it misses a workflow, name it yourself: `--workflows "Deploy,PR Validation" --branches "main,feature/**"`.
 3. `gh aw secrets bootstrap` lists the secrets the workflows need and asks for the missing ones.
 
@@ -195,9 +195,9 @@ The workflows run on any engine gh-aw supports. Copilot is the default; pass `--
 
 | Engine | Install with | Secret |
 | --- | --- | --- |
-| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.5.2` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
-| Claude | `gh aw add rammc/sf-deploy-doctor@v0.5.2 --engine claude` | `ANTHROPIC_API_KEY` |
-| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.5.2 --engine codex` | shown by `gh aw secrets bootstrap` |
+| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.6.0` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
+| Claude | `gh aw add rammc/sf-deploy-doctor@v0.6.0 --engine claude` | `ANTHROPIC_API_KEY` |
+| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.6.0 --engine codex` | shown by `gh aw secrets bootstrap` |
 
 The examples on this page were written with Claude. With an engine other than Copilot, `gh aw add` prints a notice about a new restricted secret; it tells you that the workflow will read that secret, which is what you asked for.
 
@@ -227,6 +227,30 @@ Two things to know:
 - gh-aw lets a new release rest for seven days before `gh aw update` offers it, as a protection against a compromised release. `gh aw update --cool-down 0` takes it at once.
 - If an update reports a conflict in `deploy-doctor.md`, a release changed a line next to your trigger. Keep the upstream side of the conflict, run the setup script again with `--write` and compile. The update from 0.1.0 to 0.2.0 does this once; the trigger block is kept stable from 0.2.0 on.
 
+### Configuration file (optional)
+
+Everything works without it. Add `.github/deploy-doctor.json` when the defaults do not fit:
+
+```json
+{
+  "doctor": {
+    "environment": { "from": "job-name", "pattern": "\\((\\w+)\\)" }
+  },
+  "preflight": {
+    "minSeverity": "medium",
+    "knownReferences": ["Account.Legacy_*", "Hand_Made_Setting__c"]
+  }
+}
+```
+
+| Key | What it does |
+|---|---|
+| `doctor.environment.from` | How the doctor tells which org a run deployed to. `github-environment` (default): the `environment:` of the job. `job-name` or `run-title`: the first group of `pattern` in the name of the job or the title of the run. `none`: the workflow always deploys to the same org, whatever its inputs say |
+| `preflight.minSeverity` | From which severity on a signal wakes the agent: `high`, `medium` (default) or `low` |
+| `preflight.knownReferences` | Names that are deliberately not in the repository, with `*` as a wildcard. A missing reference to one of them is a low signal |
+
+The doctor reads the file from the deployed commit. The pre-flight reads it from the base branch of the pull request, never from the pull request itself, so a change cannot switch off its own warnings. Which workflows and branches the doctor watches stays in the workflow files; the setup script writes those.
+
 ### If something does not work
 
 | What you see | Why | What to do |
@@ -237,8 +261,9 @@ Two things to know:
 | The doctor reports that test details are missing | In CI the Salesforce CLI prints how many tests failed, not which | Add the report step under [Works with your pipeline](#-works-with-your-pipeline) |
 | The run fails in the agent job with an authentication error | The secret of the engine is missing or expired | `gh aw secrets bootstrap` |
 | No pre-flight comment on a pull request | The diff carries no signal, or it touches no file under the path filter. Both are intended: no finding, no comment | Check `paths:` in `deploy-preflight.md` if your metadata lives elsewhere |
-| The pre-flight leaves no comment on a pull request | The diff carries low signals only, or none | Intended. Set `--min-severity low` in `deploy-preflight.md` if you want a comment for those too |
-| An open report was closed when a newer one arrived | When there is no pull request, the doctor opens an issue and closes the older issue about the same deploy workflow | If one workflow deploys several branches to several orgs and you want one open report per org, set `close-older-issues: false` in `deploy-doctor.md` |
+| The pre-flight leaves no comment on a pull request | The diff carries low signals only, or none | Intended. Set `preflight.minSeverity` to `low` in `.github/deploy-doctor.json` if you want a comment for those too |
+| An open report was closed when a newer one arrived | When there is no pull request, the doctor opens an issue and closes the older issue about the same deploy workflow | If one workflow deploys to several orgs in separate runs and you want one open report per org, set `close-older-issues: false` in `deploy-doctor.md`. The key that decides which report is replaced cannot carry the org |
+| `changeRange.known` is `false` for a manual run | The workflow takes inputs and the run does not say which org it deployed to | Give the deploy job an `environment:`, or describe the rule in `.github/deploy-doctor.json` |
 | The run fails with `Failed to resolve runtime import path` | The workflow exists only on the pull request branch | Merge it to the default branch first |
 
 ## 🧩 Works with your pipeline
@@ -249,6 +274,7 @@ The doctor does not replace or wrap your deployment. It reads the job log of the
 - `sf apex run test` as a step of its own
 - errors of the CLI itself, such as a failed login or a failed package installation
 - several failed jobs in one run, for example one per org: every finding names the jobs it occurred in
+- one workflow that deploys to several orgs, if the job has a GitHub `environment:` or the [configuration file](#configuration-file-optional) says how to tell the org
 - the composite actions of the [Salesforce DevOps Starter Kit](https://github.com/svierk/salesforce-devops-starter-kit), for example [`svierk/sfdx-deploy`](https://github.com/svierk/sfdx-deploy)
 
 Output as JSON and as the human-readable tables both work. For a failed step of any other kind, such as a script of your own, the agent gets the last lines of its output and diagnoses from those.

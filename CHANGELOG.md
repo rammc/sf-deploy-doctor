@@ -2,6 +2,16 @@
 
 Each release is a tag. The workflows of a release check out the context builders at the same tag, so an installed workflow keeps running the scripts it was written for until you update it.
 
+## 0.6.0
+
+Two more points from an outside review, both confirmed in the code.
+
+- **The target org is part of the comparison.** The base of a push or a manual run was the last successful run of the same workflow on the branch, wherever that run had deployed to. With one workflow for UAT and production, a failed production run was compared with the last UAT run, and `changedInThisRun: false` was wrong for production. The doctor now reads the GitHub environment of each job (new permission `deployments: read`) and only accepts an earlier run that deployed to the same environments. `run.environments` and `changeRange.environments` say what was found. A manual run of a workflow with inputs that names no environment has an unknown range instead of a guessed one.
+- **A new missing name stays medium in a project with package dependencies.** Until now every missing reference was low as soon as `sfdx-project.json` listed a dependency, so a typo in a new field name no longer woke the agent. Now the signal is low only if the base branch already uses the name. Over the 470 changes of twelve public repositories the agent runs 83 times instead of 55.
+- **Optional configuration file** `.github/deploy-doctor.json`: how to tell the target org when the jobs have no GitHub environment (`doctor.environment`), the threshold of the pre-flight (`preflight.minSeverity`) and names that are deliberately not in the repository (`preflight.knownReferences`). The pre-flight reads it from the base branch, so a pull request cannot silence itself. Nothing changes without the file.
+- The pre-flight workflow no longer passes `--min-severity`; the default is still medium. If you edited that line, `gh aw update` shows a conflict there: keep your value or move it to the configuration file.
+- Not solved: the key that decides which older report is closed still hangs on the workflow, because gh-aw does not let it carry a value computed at run time. With one workflow for several orgs, set `close-older-issues: false`.
+
 ## 0.5.2
 
 - A manually started diagnosis closed the open report of any other manual diagnosis, because all of them shared one key. The key is now the id of the diagnosed run: a report only replaces an older report about the same run. Runs triggered by a failed deployment were not affected.

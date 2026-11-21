@@ -840,12 +840,14 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
         "basis": basis.get("kind"),
         "comparedWith": BASIS.get(basis.get("kind")) if changed is not None else None,
         **({"run": basis["run"]} if changed is not None and basis.get("run") else {}),
+        **({"environments": basis["environments"]} if changed is not None and basis.get("environments") else {}),
         **({"why": basis["why"]} if changed is None else {}),
     }
     parsed["categories"] = catalog["categories"]
     parsed["legend"] = {
         "changedInThisRun": "true: the file changed between changeRange.base and the deployed commit. false: the file exists and did not change in that range. null: unknown, because no source file was found or the range is not known (changeRange.known is false). A null says nothing about who caused the failure.",
-        "changeRange": "What the deployed commit was compared with. basis pull-request: the files of the pull request. basis last-successful-run: everything since this workflow last succeeded on this branch, which is what the failed run tried to deploy on top of a working state.",
+        "changeRange": "What the deployed commit was compared with. basis pull-request: the files of the pull request. basis last-successful-run: everything since this workflow last succeeded on this branch, which is what the failed run tried to deploy on top of a working state. If environments is set, that earlier run deployed to the same environments as the failed jobs; a successful run to another org is never used as the base.",
+        "run.environments": "The environments (orgs) the failed jobs deployed to, from the GitHub environment of the job or from the rule in .github/deploy-doctor.json. Empty means the run does not say where it deployed.",
         "inAllFailedJobs": "Only when several jobs failed. true: every failed job reported this finding, so it does not depend on one org. false: notInJobs lists the failed jobs that did not report it.",
         "jobs": "Only when several jobs failed: the failed jobs a finding occurred in. A pipeline with one job per org or a matrix fails per environment; the job name usually carries the environment.",
         "reference.inRepository": "For a missing dependency: whether the referenced component exists in the source at all. true means it exists but did not reach the org with this deployment; false means it is not in the repository.",
@@ -872,8 +874,101 @@ def job_log(repo: str, job_id) -> str:
         return gh("api", path)
 
 
-def change_base(repo: str, run: dict) -> dict:
-    """What the deployed commit has to be compared with to see what this run changed."""
+CONFIG_PATH = ".github/deploy-doctor.json"
+ENVIRONMENT_SOURCES = ("github-environment", "job-name", "run-title", "none")
+MAX_BASE_CANDIDATES = 8
+
+
+def parse_config(text: str | None) -> dict:
+    """The optional configuration file. A broken file is reported and ignored, never fatal."""
+    if not text or not text.strip():
+        return {}
+    try:
+        config = json.loads(text)
+    except ValueError as err:
+        print(f"::warning::Deploy Doctor ignores {CONFIG_PATH}: it is not valid JSON ({err})")
+        return {}
+    if not isinstance(config, dict):
+        print(f"::warning::Deploy Doctor ignores {CONFIG_PATH}: it has to be a JSON object")
+        return {}
+    return config
+
+
+def environment_rule(config: dict) -> dict:
+    """How to tell which org a run deployed to. Default: the GitHub environment of the job."""
+    rule = (config.get("doctor") or {}).get("environment") or {}
+    source = rule.get("from") or "github-environment"
+    if source not in ENVIRONMENT_SOURCES:
+        print(f"::warning::Deploy Doctor ignores doctor.environment in {CONFIG_PATH}: "
+              f"`from` has to be one of {', '.join(ENVIRONMENT_SOURCES)}")
+        return {"from": "github-environment"}
+    if source in ("job-name", "run-title"):
+        pattern = str(rule.get("pattern") or "")
+        try:
+            if not pattern or len(pattern) > 200:
+                raise re.error("missing or longer than 200 characters")
+            return {"from": source, "pattern": re.compile(pattern)}
+        except re.error as err:
+            print(f"::warning::Deploy Doctor ignores doctor.environment in {CONFIG_PATH}: pattern {err}")
+            return {"from": "github-environment"}
+    return {"from": source}
+
+
+def matched_name(pattern: re.Pattern, text: str | None) -> str | None:
+    m = pattern.search(text or "")
+    if not m:
+        return None
+    return (m.group(1) if m.groups() and m.group(1) else m.group(0)).strip() or None
+
+
+def environments_of(repo: str, run: dict, rule: dict, jobs: list[dict] | None = None) -> dict | None:
+    """The environment each job of a run deployed to: {job id: name}. The key None stands for
+    every job of the run. An empty result means the run names no environment; None means it
+    could not be found out."""
+    source = rule.get("from")
+    if source == "none":
+        return {}
+    if source == "run-title":
+        name = matched_name(rule["pattern"], run.get("display_title"))
+        return {None: name} if name else {}
+    if source == "job-name":
+        if jobs is None:
+            try:
+                jobs = json.loads(gh("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100")).get("jobs", [])
+            except (subprocess.CalledProcessError, ValueError, KeyError):
+                return None
+        found = {j["id"]: matched_name(rule["pattern"], j.get("name")) for j in jobs}
+        return {k: v for k, v in found.items() if v}
+    # A job with `environment:` creates a deployment whose status links back to the job.
+    found = {}
+    try:
+        deployments = json.loads(gh("api", f"repos/{repo}/deployments?sha={run['head_sha']}&per_page=100"))
+        for d in deployments:
+            statuses = json.loads(gh("api", f"repos/{repo}/deployments/{d['id']}/statuses?per_page=1"))
+            link = re.search(r"/actions/runs/(\d+)/job/(\d+)", (statuses[0].get("log_url") or "") if statuses else "")
+            if link and link.group(1) == str(run.get("id")) and d.get("environment"):
+                found[int(link.group(2))] = d["environment"]
+    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+        return None
+    return found
+
+
+def environments_in(found: dict | None, jobs: list[dict] | None = None) -> list[str]:
+    """The names behind a result of environments_of, for all jobs or for the given ones."""
+    if not found:
+        return []
+    if jobs is None:
+        return sorted(set(found.values()))
+    return sorted({found.get(j.get("id")) or found.get(None) for j in jobs} - {None})
+
+
+def change_base(repo: str, run: dict, rule: dict | None = None, target: list[str] | None = None,
+                parametrized: bool = False) -> dict:
+    """What the deployed commit has to be compared with to see what this run changed.
+
+    `target` are the environments the failed jobs deployed to. An earlier run only counts as
+    the working state if it deployed to all of them: the last green run to UAT says nothing
+    about what a run to production changes there."""
     head = run.get("head_sha")
     prs = run.get("pull_requests") or []
     if prs:
@@ -887,6 +982,10 @@ def change_base(repo: str, run: dict) -> dict:
         except (subprocess.CalledProcessError, ValueError):
             pass
         return {"kind": None, "why": "the pull request of this run could not be determined"}
+    if not target and parametrized:
+        return {"kind": None, "why": "the run was started by hand with inputs, and neither a GitHub environment nor "
+                                     f"{CONFIG_PATH} says which org it deployed to; an earlier successful run "
+                                     "may have deployed somewhere else"}
     # A push or a manual run: everything since the workflow last succeeded on this branch.
     try:
         branch = urllib.parse.quote(run.get("head_branch") or "", safe="")
@@ -894,14 +993,37 @@ def change_base(repo: str, run: dict) -> dict:
                                        f"?branch={branch}&status=success&per_page=30")).get("workflow_runs", [])
     except (subprocess.CalledProcessError, ValueError, KeyError):
         return {"kind": None, "why": "the earlier runs of this workflow could not be listed"}
+    looked_at = 0
     for old in earlier:
-        if old.get("run_number", 0) < run.get("run_number", 0) and old.get("head_sha") != head:
-            return {"kind": "last-successful-run", "base": old["head_sha"],
-                    "run": {"number": old.get("run_number"), "url": old.get("html_url")}}
+        if not (old.get("run_number", 0) < run.get("run_number", 0) and old.get("head_sha") != head):
+            continue
+        found = {"kind": "last-successful-run", "base": old["head_sha"],
+                 "run": {"number": old.get("run_number"), "url": old.get("html_url")}}
+        if not target:
+            return found
+        if looked_at == MAX_BASE_CANDIDATES:
+            break
+        looked_at += 1
+        if set(target) <= set(environments_in(environments_of(repo, old, rule or {}))):
+            return {**found, "environments": target}
+    if target:
+        return {"kind": None, "why": f"none of the last {looked_at} successful run(s) of this workflow on this branch "
+                                     f"deployed to {', '.join(target)}, so there is nothing to compare with"}
     return {"kind": None, "why": "this workflow has not succeeded on this branch before, so there is nothing to compare with"}
 
 
-def load_run(run_id: str) -> tuple[dict, list[tuple[str, str]], dict, str | None]:
+def takes_inputs(root: Path | None, run: dict) -> bool:
+    """A run started by hand from a workflow that declares inputs: one of them may choose the org."""
+    if root is None or run.get("event") != "workflow_dispatch":
+        return False
+    try:
+        text = (root / str(run.get("path") or "").split("@")[0]).read_text(errors="replace")
+    except OSError:
+        return False
+    return bool(re.search(r"^\s*workflow_dispatch:\s*\n(?:\s*(?:#.*)?\n)*?\s+inputs:", text, re.M))
+
+
+def load_run(run_id: str, root: Path | None = None) -> tuple[dict, list[tuple[str, str]], dict, str | None]:
     repo = os.environ.get("GITHUB_REPOSITORY") or json.loads(gh("repo", "view", "--json", "nameWithOwner"))["nameWithOwner"]
     run = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}"))
     logs, log_errors = [], []
@@ -923,13 +1045,22 @@ def load_run(run_id: str) -> tuple[dict, list[tuple[str, str]], dict, str | None
             log_errors.append(f"{j.get('name')}: {reason}")
     if failed and not any(text.strip() for _, text in logs) and not log_errors:
         log_errors.append("the log download returned no content")
-    basis = change_base(repo, run)
+    config = parse_config((root / CONFIG_PATH).read_text(errors="replace")
+                          if root and (root / CONFIG_PATH).is_file() else None)
+    rule = environment_rule(config)
+    environments = environments_of(repo, run, rule, jobs)
+    target = environments_in(environments, failed)
+    basis = change_base(repo, run, rule, target, rule["from"] != "none" and takes_inputs(root, run))
     info = {
         "id": run.get("id"), "number": run.get("run_number"), "url": run.get("html_url"),
         "workflow": run.get("name"), "event": run.get("event"), "branch": run.get("head_branch"),
         "headSha": run.get("head_sha"), "conclusion": run.get("conclusion"),
         "pullRequest": basis.get("pullRequest"),
+        "environments": target,
+        "environmentsFrom": None if not target else rule["from"],
         "failedJobs": [{"name": j.get("name"),
+                        **({"environment": environments_in(environments, [j])[0]}
+                           if environments_in(environments, [j]) else {}),
                         "failedSteps": [s["name"] for s in j.get("steps", []) if s.get("conclusion") == "failure"]}
                        for j in failed],
         "logLines": sum(len(text.splitlines()) for _, text in logs),
@@ -953,8 +1084,9 @@ def main() -> int:
     args = ap.parse_args()
 
     run_info, base, head, basis = None, args.base, args.head, None
+    root = None if args.no_repo else Path(args.repo_dir).resolve()
     if args.run_id:
-        run_info, logs, found, run_head = load_run(args.run_id)
+        run_info, logs, found, run_head = load_run(args.run_id, root)
         if not base:
             base, basis = found.get("base"), found
         head = head or run_head
@@ -965,10 +1097,13 @@ def main() -> int:
     else:
         parsed = parse_text(Path(args.log_file).read_text(errors="replace"))
 
-    root = None if args.no_repo else Path(args.repo_dir).resolve()
     catalog = load_catalog(Path(args.catalog) if args.catalog else None)
     context = enrich(parsed, root, base, head, catalog, basis)
     context = {"run": run_info, **context}
+    by_job = {j["name"]: j.get("environment") for j in (run_info or {}).get("failedJobs", [])}
+    for job in context.get("jobs") or []:
+        if by_job.get(job.get("name")):
+            job["environment"] = by_job[job["name"]]
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

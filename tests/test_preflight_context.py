@@ -1,4 +1,5 @@
 """Tests for doctor/preflight_context.py. Run with: python3 -m unittest discover -s tests"""
+import json
 import subprocess
 import sys
 import tempfile
@@ -258,6 +259,50 @@ class Preflight(unittest.TestCase):
         self.assertEqual(counts[None]["signals_total"], "2")
         self.assertEqual(counts["low"]["signals"], "2")
         self.assertEqual(counts["high"]["signals"], "0")
+
+    def config_on_main(self, text):
+        git(self.repo, "switch", "-q", "main")
+        write(self.repo, ".github/deploy-doctor.json", text)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "config")
+        git(self.repo, "switch", "-q", "-c", "change2")
+
+    def test_known_references_from_the_base_branch_are_low(self):
+        self.config_on_main('{"preflight": {"knownReferences": ["Account.Legacy_*", "Hand_Made__c"]}}')
+        write(self.repo, f"{D}/classes/Score.cls",
+              "public class Score {\n  Object a = [SELECT Legacy_Code__c, Hand_Made__c, Typo__c FROM Account];\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        ctx = pf.build(self.repo, "main", "change2")
+        found = {s["why"].split("`")[1].rpartition(".")[2]: s for s in ctx["signals"] if s["rule"] == "reference-not-in-source"}
+        self.assertEqual({k: v["severity"] for k, v in found.items()},
+                         {"Legacy_Code__c": "low", "Hand_Made__c": "low", "Typo__c": "high"})
+        self.assertEqual(found["Legacy_Code__c"]["knownReference"], "Account.Legacy_*")
+
+    def test_a_pull_request_cannot_silence_itself(self):
+        write(self.repo, ".github/deploy-doctor.json", '{"preflight": {"knownReferences": ["*"], "minSeverity": "high"}}')
+        write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT Typo__c FROM Account];\n}\n")
+        ctx = self.run_preflight()
+        signal = next(s for s in ctx["signals"] if s["rule"] == "reference-not-in-source")
+        self.assertEqual(signal["severity"], "high")
+        self.assertIsNone(ctx["config"]["minSeverity"])
+
+    def test_threshold_from_the_configuration_and_the_flag_wins(self):
+        self.config_on_main('{"preflight": {"minSeverity": "low"}}')
+        write(self.repo, f"{D}/profiles/Admin.profile-meta.xml", "<Profile>\n</Profile>\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        script, counts = str(ROOT / "doctor" / "preflight_context.py"), {}
+        for level in (None, "high"):
+            out, github = Path(self.tmp.name) / "pf.json", Path(self.tmp.name) / f"cfg-{level}"
+            subprocess.run([sys.executable, script, "--repo-dir", str(self.repo), "--base", "main", "--head", "change2",
+                            "--out", str(out)] + (["--min-severity", level] if level else []),
+                           check=True, capture_output=True, env={"GITHUB_OUTPUT": str(github), "PATH": __import__("os").environ["PATH"]})
+            counts[level] = dict(l.split("=") for l in github.read_text().splitlines())["signals"]
+            self.assertNotIn("config", json.loads(out.read_text()))
+        self.assertEqual(counts, {None: "1", "high": "0"})
 
     def test_component_of(self):
         self.assertEqual(pf.component_of(f"{D}/classes/Score.cls-meta.xml"), {"type": "ApexClass", "name": "Score"})
