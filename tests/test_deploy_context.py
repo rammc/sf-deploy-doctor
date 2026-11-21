@@ -447,6 +447,87 @@ class ChangeBase(unittest.TestCase):
         self.assertNotIn("base", found)
 
 
+class Environments(ChangeBase):
+    """The same workflow deploys to UAT and to production: the last green run to UAT is no base for production."""
+
+    RUN = {"id": 30, "head_sha": "h", "event": "workflow_dispatch", "head_branch": "main", "workflow_id": 11,
+           "run_number": 30, "pull_requests": [], "display_title": "Deploy to prod"}
+
+    def deployments(self, sha, run_id, **jobs):
+        """Answers of the deployments API for one commit: environment -> job id."""
+        self.answers[f"deployments?sha={sha}"] = [{"id": f"{sha}-{env}", "environment": env} for env in jobs]
+        for env, job in jobs.items():
+            self.answers[f"deployments/{sha}-{env}/statuses"] = [
+                {"log_url": f"https://github.com/o/r/actions/runs/{run_id}/job/{job}"}]
+
+    def test_github_environment_of_a_job(self):
+        self.deployments("h", 30, uat=1, prod=2)
+        found = dc.environments_of("o/r", self.RUN, {"from": "github-environment"})
+        self.assertEqual(found, {1: "uat", 2: "prod"})
+        self.assertEqual(dc.environments_in(found, [{"id": 2}]), ["prod"])
+        self.assertEqual(dc.environments_in(found), ["prod", "uat"])
+
+    def test_a_deployment_of_another_run_of_the_same_commit_does_not_count(self):
+        self.deployments("h", 29, uat=1)
+        self.assertEqual(dc.environments_of("o/r", self.RUN, {"from": "github-environment"}), {})
+
+    def test_environments_that_cannot_be_read_are_unknown(self):
+        self.assertIsNone(dc.environments_of("o/r", self.RUN, {"from": "github-environment"}))
+        self.assertEqual(dc.environments_in(None), [])
+
+    def test_base_is_the_last_green_run_to_the_same_environment(self):
+        self.answers["workflows/11/runs"] = {"workflow_runs": [
+            {"id": 29, "run_number": 29, "head_sha": "uat-only"},
+            {"id": 27, "run_number": 27, "head_sha": "prod-green", "html_url": "u"},
+        ]}
+        self.deployments("uat-only", 29, uat=5)
+        self.deployments("prod-green", 27, prod=6)
+        found = dc.change_base("o/r", self.RUN, {"from": "github-environment"}, ["prod"])
+        self.assertEqual(found, {"kind": "last-successful-run", "base": "prod-green",
+                                 "run": {"number": 27, "url": "u"}, "environments": ["prod"]})
+
+    def test_no_green_run_to_the_environment_means_no_base(self):
+        self.answers["workflows/11/runs"] = {"workflow_runs": [{"id": 29, "run_number": 29, "head_sha": "uat-only"}]}
+        self.deployments("uat-only", 29, uat=5)
+        found = dc.change_base("o/r", self.RUN, {"from": "github-environment"}, ["prod"])
+        self.assertIsNone(found["kind"])
+        self.assertIn("deployed to prod", found["why"])
+
+    def test_a_manual_run_with_inputs_and_no_environment_has_no_base(self):
+        self.answers["workflows/11/runs"] = {"workflow_runs": [{"id": 29, "run_number": 29, "head_sha": "green"}]}
+        found = dc.change_base("o/r", self.RUN, {"from": "github-environment"}, [], parametrized=True)
+        self.assertIsNone(found["kind"])
+        self.assertIn("inputs", found["why"])
+        self.assertEqual(dc.change_base("o/r", self.RUN, {"from": "none"}, [])["base"], "green")
+
+    def test_rule_from_the_run_title_and_the_job_name(self):
+        rule = dc.environment_rule({"doctor": {"environment": {"from": "run-title", "pattern": "to (\\w+)"}}})
+        self.assertEqual(dc.environments_of("o/r", self.RUN, rule), {None: "prod"})
+        self.assertEqual(dc.environments_in({None: "prod"}, [{"id": 9}]), ["prod"])
+        rule = dc.environment_rule({"doctor": {"environment": {"from": "job-name", "pattern": "\\((\\w+)\\)"}}})
+        jobs = [{"id": 1, "name": "Deploy (uat)"}, {"id": 2, "name": "Lint"}]
+        self.assertEqual(dc.environments_of("o/r", self.RUN, rule, jobs), {1: "uat"})
+
+    def test_a_broken_rule_falls_back_to_github_environments(self):
+        for rule in ({"from": "branch"}, {"from": "job-name", "pattern": "("}, {"from": "run-title"}):
+            self.assertEqual(dc.environment_rule({"doctor": {"environment": rule}}), {"from": "github-environment"})
+        self.assertEqual(dc.parse_config("{ not json"), {})
+        self.assertEqual(dc.parse_config("[1]"), {})
+
+    def test_a_workflow_with_inputs_started_by_hand(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/deploy.yml").write_text(
+                "on:\n  push:\n  workflow_dispatch:\n    inputs:\n      org:\n        type: string\n")
+            (root / ".github/workflows/plain.yml").write_text("on:\n  workflow_dispatch:\n  push:\n")
+            run = {"event": "workflow_dispatch", "path": ".github/workflows/deploy.yml"}
+            self.assertTrue(dc.takes_inputs(root, run))
+            self.assertFalse(dc.takes_inputs(root, {**run, "event": "push"}))
+            self.assertFalse(dc.takes_inputs(root, {**run, "path": ".github/workflows/plain.yml"}))
+
+
 class SeveralJobs(unittest.TestCase):
     """One job per org: every finding says where it occurred."""
 
