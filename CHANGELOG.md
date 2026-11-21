@@ -2,6 +2,10 @@
 
 Each release is a tag. The workflows of a release check out the context builders at the same tag, so an installed workflow keeps running the scripts it was written for until you update it.
 
+## 0.5.2
+
+- A manually started diagnosis closed the open report of any other manual diagnosis, because all of them shared one key. The key is now the id of the diagnosed run: a report only replaces an older report about the same run. Runs triggered by a failed deployment were not affected.
+
 ## 0.5.1
 
 Found in the first live run with two orgs: the context listed a compile error for both jobs, and the agent still reported it for one org only and explained the difference with an assumption about the other org.

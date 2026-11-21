@@ -69,7 +69,7 @@ steps:
     uses: actions/checkout@v7
     with:
       repository: rammc/sf-deploy-doctor
-      ref: v0.5.1
+      ref: v0.5.2
       path: .deploy-doctor/tool
       persist-credentials: false
   - name: Build the context from the failed run
@@ -89,7 +89,8 @@ safe-outputs:
     close-older-issues: true
     # Only an older report about the same deployment workflow is closed, so a failed
     # production deployment does not close the open report about the validation.
-    close-older-key: "deploy-doctor-${{ github.event.workflow_run.workflow_id || 'manual' }}"
+    # A manual run has no workflow id; there a report only replaces an older one about the same run.
+    close-older-key: "deploy-doctor-${{ github.event.workflow_run.workflow_id || github.event.inputs.run_id }}"
     max: 1
   add-comment:
     target: "*"
