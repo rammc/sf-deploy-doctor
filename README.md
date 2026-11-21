@@ -109,7 +109,7 @@ The cheapest failed deployment is the one that never starts. The pre-flight work
 
 | Signal | Severity | What it catches |
 | --- | --- | --- |
-| `reference-not-in-source` | high / low | The change refers to a field, object or class that is not defined anywhere in the repository. Low if the base branch already uses the name (in an org that is only partly in version control such a reference is not new), or if the project depends on other packages that may define it. For Lightning web components and Aura this covers every `@salesforce/...` import (Apex, schema, labels, static resources, custom permissions, message channels), `c/...` modules and `<c-...>` tags |
+| `reference-not-in-source` | high / medium / low | The change refers to a field, object or class that is not defined anywhere in the repository. Low if the base branch already uses the name (in an org that is only partly in version control such a reference is not new). Medium if the name is new and the project depends on other packages that may define it. For Lightning web components and Aura this covers every `@salesforce/...` import (Apex, schema, labels, static resources, custom permissions, message channels), `c/...` modules and `<c-...>` tags |
 | `apex-method-not-exposed` | high | A component imports an Apex method that the class does not declare or declares without `@AuraEnabled`, including the case where a change to the class breaks a component that is not part of the pull request |
 | `deleted-still-referenced` | high | A component is deleted while other files still use it |
 | `field-type-change` | high | The type of an existing field changes |

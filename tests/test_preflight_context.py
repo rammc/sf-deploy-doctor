@@ -190,14 +190,32 @@ class Preflight(unittest.TestCase):
         self.assertEqual(found["Grown__c"]["usedBefore"], {"files": 1, "example": f"{D}/classes/Old.cls"})
         self.assertEqual(ctx["totals"], {"high": 1, "medium": 0, "low": 1})
 
-    def test_a_project_with_package_dependencies_gets_low_signals_for_missing_names(self):
+    def test_a_project_with_package_dependencies_gets_medium_signals_for_new_missing_names(self):
         """Unlocked packages have no namespace, so their fields look like fields of this project."""
         write(self.repo, "sfdx-project.json", '{"packageDirectories": [{"path": "force-app", "dependencies": '
                                               '[{"package": "shared-base", "versionNumber": "1.0.0.LATEST"}]}]}')
         write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT From_Package__c FROM Account];\n}\n")
         ctx = self.run_preflight()
         signal = next(s for s in ctx["signals"] if s["rule"] == "reference-not-in-source")
-        self.assertEqual((signal["severity"], signal["dependencies"]), ("low", ["shared-base"]))
+        self.assertEqual((signal["severity"], signal["dependencies"]), ("medium", ["shared-base"]))
+
+    def test_a_package_name_the_base_branch_already_uses_stays_low(self):
+        git(self.repo, "switch", "-q", "main")
+        write(self.repo, "sfdx-project.json", '{"packageDirectories": [{"path": "force-app", "dependencies": '
+                                              '[{"package": "shared-base", "versionNumber": "1.0.0.LATEST"}]}]}')
+        write(self.repo, f"{D}/classes/Old.cls", "public class Old {\n  Object a = [SELECT From_Package__c FROM Account];\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "base uses the package field")
+        git(self.repo, "switch", "-q", "-c", "change2")
+        write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT From_Package__c FROM Account];\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        ctx = pf.build(self.repo, "main", "change2")
+        signal = next(s for s in ctx["signals"] if s["rule"] == "reference-not-in-source")
+        self.assertEqual(signal["severity"], "low")
+        self.assertIn("usedBefore", signal)
+        self.assertNotIn("dependencies", signal)
 
     def test_a_deleted_class_named_in_a_changelog_is_not_still_referenced(self):
         git(self.repo, "switch", "-q", "main")

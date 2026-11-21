@@ -647,13 +647,6 @@ def mark_established(root: Path, base: str, head: str, items: list[dict]) -> Non
         name = REFERENCE_NAME.match(item["why"])
         if not name:
             continue
-        if packages:
-            # Unlocked packages without a namespace: their components look like local ones.
-            item["severity"] = "low"
-            item["dependencies"] = packages[:10]
-            item["why"] += (f" The project depends on {len(packages)} other package(s), which may define it; "
-                            "their contents are not in this repository.")
-            continue
         leaf = name.group(1).rpartition(".")[2]
         used = files_mentioning(root, start, leaf)
         if used:
@@ -661,6 +654,13 @@ def mark_established(root: Path, base: str, head: str, items: list[dict]) -> Non
             item["usedBefore"] = {"files": len(used), "example": used[0]}
             item["why"] += (f" The base branch already uses the name in {len(used)} file(s), so it most likely "
                             "exists in the target orgs and is only missing from the repository.")
+        elif packages:
+            # Unlocked packages without a namespace: their components look like local ones.
+            # The name is still new to this repository, so a typo is as likely as a package field.
+            item["severity"] = "medium"
+            item["dependencies"] = packages[:10]
+            item["why"] += (f" The project depends on {len(packages)} other package(s), which may define it; "
+                            "their contents are not in this repository. The base branch does not use the name.")
 
 
 def build(root: Path, base: str, head: str) -> dict:
@@ -736,7 +736,8 @@ def build(root: Path, base: str, head: str) -> dict:
             "usedBefore": "On a missing reference: the base branch already uses the name in that many files. The "
                           "reference is then not new, and the signal is low.",
             "dependencies": "On a missing reference: the packages the project depends on according to "
-                            "sfdx-project.json. One of them may define the name, so the signal is low.",
+                            "sfdx-project.json. One of them may define the name, so the signal is medium "
+                            "as long as the base branch does not use the name.",
             "reference-not-in-source": "The name is not defined anywhere in the repository. It may still exist in "
                                        "the org (created by hand, standard feature, unmanaged leftovers).",
             "ui-reference-not-in-source": "A UI bundle (React, Angular or another front-end application) names a "
