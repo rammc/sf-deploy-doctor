@@ -8,9 +8,9 @@ An open source agent for your Salesforce pipeline. When a deployment or validati
 
 A second workflow, the **pre-flight**, looks at a pull request before anything is deployed and points out what is likely to fail.
 
-Both run as [GitHub Agentic Workflows](https://github.com/github/gh-aw) in your own repository, are read-only by design, and install with one command each.
+Both run as [GitHub Agentic Workflows](https://github.com/github/gh-aw) in your own repository, are read-only by design, and install together with one command.
 
-> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md), [pre-flight with many risks](docs/example-preflight-combined.md), [pre-flight for a Lightning web component](docs/example-preflight-lwc.md)). They have not been used on a production pipeline yet. Expect changes.
+> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md), [pre-flight with many risks](docs/example-preflight-combined.md), [pre-flight for a Lightning web component](docs/example-preflight-lwc.md)). The part of the doctor that reads logs has also been measured against the failed runs of real pipelines, see [the benchmarks](#what-happens-with-a-step-the-doctor-does-not-understand). The agents themselves have not run on a production pipeline yet, and all live runs used Claude as the engine. Expect changes.
 
 ## 😵 The problem
 
@@ -73,7 +73,7 @@ flowchart LR
     E -->|no| G[One issue]
 ```
 
-1. **The context builder collects the facts.** A single Python script reads the logs of the failed run and extracts every component failure, test failure and coverage warning. It matches each one against a catalog of known Salesforce error patterns and against your repository.
+1. **The context builder collects the facts.** A single Python script reads the logs of the failed run and extracts every component failure, test failure, coverage warning and error of the CLI, from every deployment and test run in the job. It matches each one against a catalog of known Salesforce error patterns and against your repository. For each failed step it also keeps a short excerpt of the output, in case the step is something it does not understand.
 2. **The agent diagnoses.** It reads the resulting `context.json`, groups errors that share a cause, separates root causes from follow-up errors and decides who has to act.
 3. **One report.** A comment on the pull request if the run belongs to one, otherwise an issue. Older doctor issues are closed automatically.
 
@@ -95,13 +95,13 @@ The catalog (`doctor/catalog.json`) currently holds 53 patterns in seven categor
 
 | Category | Examples |
 | --- | --- |
-| **Missing dependency** | A field, object or class the org does not have; a permission set that still lists a deleted field; a manifest entry without a file; a Lightning web component that imports a missing class, field, label, static resource or child component |
-| **Code** | Apex that does not compile, signature mismatches, follow-up errors of an invalid class; a Lightning web component that does not compile or imports an Apex method without `@AuraEnabled` |
-| **Test failure** | Assertions, required fields, validation rules, duplicate rules, row locks, mixed DML, governor limits |
+| **Missing dependency** | A field, object or class the org does not have; a permission set that still lists a deleted field; a manifest entry without a file; an email template whose folder is missing; a list view column the org does not know; a Lightning web component that imports a missing class, field, label, static resource or child component |
+| **Code** | Apex that does not compile, signature mismatches, follow-up errors of an invalid class; a Lightning web component that does not compile or imports an Apex method without `@AuraEnabled`; metadata that is not well-formed XML; a file excluded by `.forceignore` that a component needs |
+| **Test failure** | Assertions, required fields, validation rules, duplicate rules, row locks, mixed DML, governor limits, field integrity errors, a test class named for the run that does not exist |
 | **Coverage** | A deployed class below 75 % with `RunSpecifiedTests`, or the org below 75 % |
-| **Org state** | Active flow versions, components still in use, blocked field type changes, name collisions, source conflicts |
-| **Permissions** | Missing access of the deploying user, unknown user permissions, missing features or licenses |
-| **Environment** | Expired authentication, network errors, timeouts, platform availability |
+| **Org state** | Active flow versions, components still in use, blocked field type changes, name collisions, source conflicts, a record locked during the deployment, a package that cannot be installed |
+| **Permissions** | Missing access of the deploying user, unknown user permissions, missing features or licenses, a type the org does not expose |
+| **Environment** | Expired authentication, an org alias that was never authenticated in the job, network errors, timeouts, platform availability, a CLI that does not start on the runner's Node.js version, a command line the CLI rejects, an exhausted API limit, a test run that exceeds its wait time |
 
 ## 🛫 Pre-flight: before the deployment
 
@@ -249,7 +249,7 @@ The doctor does not replace or wrap your deployment. It only needs the output of
 - the composite actions of the [Salesforce DevOps Starter Kit](https://github.com/svierk/salesforce-devops-starter-kit), for example [`svierk/sfdx-deploy`](https://github.com/svierk/sfdx-deploy)
 - any other wrapper that prints the CLI result
 
-If the log contains the `--json` result of the deploy command, the doctor uses that instead of the human-readable table.
+The doctor reads both forms of output. If a command printed its result as JSON, that is used, because it is complete; the human-readable tables are read where there is no JSON, and for failed steps in addition to it.
 
 ### What happens with a step the doctor does not understand
 
@@ -328,6 +328,8 @@ python3 doctor/preflight_context.py --base origin/main --head HEAD --out preflig
 
 ## 🗺️ Roadmap
 
+- **Pre-flight benchmark:** run the pre-flight over the history of public repositories and count false alarms, as was done for the diagnosis.
+- **Other engines:** a live run with Copilot; so far only the compile has been checked for it.
 - **Enrichment:** fetch the full result with `sf project deploy report` when the log is incomplete.
 - **History:** recognise a failure that already occurred in earlier runs and say since when.
 - **Skill:** the same doctor as an agent skill for local use.
@@ -340,7 +342,7 @@ The most valuable contribution is an error the doctor does not know yet. Add one
 python3 -m unittest discover -s tests
 ```
 
-The fixtures under `tests/fixtures` are real output of check-only validations with deliberately broken metadata. Org identifiers are removed.
+The fixtures under `tests/fixtures` come from two sources. The first ones are real output of check-only validations with deliberately broken metadata, with org identifiers removed. The later ones (`multi-step-ci-job.log`, `apex-tests-human-ci-job.log`, `cli-errors-ci-job.log`) are rebuilt in the shape of logs from real pipelines, with made-up names and ids.
 
 ## 🙏 Related work
 
