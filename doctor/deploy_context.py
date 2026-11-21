@@ -582,6 +582,13 @@ def parse_jobs(logs: list[tuple[str, str]]) -> dict:
                                          "failedSteps": len(part["failedSteps"])}})
         if "logTail" in part and "logTail" not in out:
             out["logTail"] = part["logTail"]
+    # Which jobs a finding is NOT in is the fact a reader needs to tell a cause in the
+    # change (every job) from a cause in one org. Stated here so nobody has to infer it.
+    names = [j["name"] for j in out["jobs"]]
+    for key in ("componentFailures", "testFailures", "coverageWarnings", "otherErrors"):
+        for item in out[key]:
+            item["inAllFailedJobs"] = len(item["jobs"]) == len(names)
+            item["notInJobs"] = [n for n in names if n not in item["jobs"]]
     if runs["runs"]:
         out["testRuns"] = runs
     # The fields a reader of a single-job run expects stay where they are.
@@ -776,7 +783,7 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
             w["changedInThisRun"] = touched(w["sourceFile"])
     classified_other = []
     for e in parsed["otherErrors"]:
-        where = {"jobs": e["jobs"]} if isinstance(e, dict) else {}
+        where = {k: e[k] for k in ("jobs", "inAllFailedJobs", "notInJobs") if k in e} if isinstance(e, dict) else {}
         e = redact(e["text"] if isinstance(e, dict) else e)
         classified_other.append({"text": e, **classify(e, catalog), **where})
     parsed["otherErrors"] = classified_other
@@ -839,6 +846,7 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
     parsed["legend"] = {
         "changedInThisRun": "true: the file changed between changeRange.base and the deployed commit. false: the file exists and did not change in that range. null: unknown, because no source file was found or the range is not known (changeRange.known is false). A null says nothing about who caused the failure.",
         "changeRange": "What the deployed commit was compared with. basis pull-request: the files of the pull request. basis last-successful-run: everything since this workflow last succeeded on this branch, which is what the failed run tried to deploy on top of a working state.",
+        "inAllFailedJobs": "Only when several jobs failed. true: every failed job reported this finding, so it does not depend on one org. false: notInJobs lists the failed jobs that did not report it.",
         "jobs": "Only when several jobs failed: the failed jobs a finding occurred in. A pipeline with one job per org or a matrix fails per environment; the job name usually carries the environment.",
         "reference.inRepository": "For a missing dependency: whether the referenced component exists in the source at all. true means it exists but did not reach the org with this deployment; false means it is not in the repository.",
         "patternId": "Entry of the error catalog that matched. null means no known pattern; classify from the text and say so.",
