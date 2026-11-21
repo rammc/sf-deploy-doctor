@@ -500,7 +500,7 @@
     {
       "id": "network-or-platform",
       "category": "environment",
-      "pattern": "(?:ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|The client has timed out|UNKNOWN_EXCEPTION|Metadata API request failed|503 Service Unavailable|maintenance)",
+      "pattern": "(?:ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|The client has timed out|UNKNOWN_EXCEPTION|Metadata API request failed|503 Service Unavailable|\\b(?:scheduled|planned|under|in|for|during|undergoing) maintenance\\b|\\bmaintenance (?:window|mode)\\b)",
       "refs": {},
       "title": "Network, timeout or platform problem",
       "advice": "Not caused by the change. Re-run. If the deployment itself timed out, raise the wait time; the deployment may still be running in the org."

@@ -153,7 +153,93 @@ class Preflight(unittest.TestCase):
         self.assertIn(("validation-rule-active", "ValidationRule:Account.Need_Code"), rules)
         self.assertIn(("profile-change", "Profile:Admin"), rules)
         self.assertIn(("active-flow-change", "Flow:Intake"), rules)
-        self.assertEqual(ctx["totals"], {"high": 0, "medium": 3, "low": 1})
+        self.assertEqual(ctx["totals"], {"high": 0, "medium": 2, "low": 2})
+
+    def test_a_flow_that_the_change_switches_on_is_medium(self):
+        git(self.repo, "switch", "-q", "main")
+        write(self.repo, f"{D}/flows/Draft.flow-meta.xml", "<Flow>\n<status>Draft</status>\n</Flow>\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "draft flow")
+        git(self.repo, "switch", "-q", "-c", "activate")
+        write(self.repo, f"{D}/flows/Draft.flow-meta.xml", "<Flow>\n<status>Active</status>\n</Flow>\n")
+        write(self.repo, f"{D}/flows/Intake.flow-meta.xml", "<Flow>\n<status>Active</status>\n<label>c</label>\n</Flow>\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        found = {s["component"]: (s["severity"], s["title"]) for s in pf.build(self.repo, "main", "activate")["signals"]}
+        self.assertEqual(found, {"Flow:Draft": ("medium", "A flow is activated"),
+                                 "Flow:Intake": ("low", "An active flow is modified")})
+
+    def test_a_name_the_base_branch_already_uses_is_a_low_signal(self):
+        """An org that is only partly in version control: the field was never in the repository."""
+        git(self.repo, "switch", "-q", "main")
+        write(self.repo, f"{D}/classes/Old.cls", "public class Old {\n  Object o = [SELECT Grown__c FROM Account];\n}\n")
+        write(self.repo, f"{D}/classes/OldTest.cls", "@IsTest\nprivate class OldTest {\n  @IsTest static void t() { new Old(); }\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "grown org")
+        git(self.repo, "switch", "-q", "-c", "change2")
+        write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT Grown__c, Brand_New__c FROM Account];\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        ctx = pf.build(self.repo, "main", "change2")
+        found = {s["why"].split("`")[1]: s for s in ctx["signals"] if s["rule"] == "reference-not-in-source"}
+        self.assertEqual(found["Brand_New__c"]["severity"], "high")
+        self.assertNotIn("usedBefore", found["Brand_New__c"])
+        self.assertEqual(found["Grown__c"]["severity"], "low")
+        self.assertEqual(found["Grown__c"]["usedBefore"], {"files": 1, "example": f"{D}/classes/Old.cls"})
+        self.assertEqual(ctx["totals"], {"high": 1, "medium": 0, "low": 1})
+
+    def test_a_project_with_package_dependencies_gets_low_signals_for_missing_names(self):
+        """Unlocked packages have no namespace, so their fields look like fields of this project."""
+        write(self.repo, "sfdx-project.json", '{"packageDirectories": [{"path": "force-app", "dependencies": '
+                                              '[{"package": "shared-base", "versionNumber": "1.0.0.LATEST"}]}]}')
+        write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT From_Package__c FROM Account];\n}\n")
+        ctx = self.run_preflight()
+        signal = next(s for s in ctx["signals"] if s["rule"] == "reference-not-in-source")
+        self.assertEqual((signal["severity"], signal["dependencies"]), ("low", ["shared-base"]))
+
+    def test_a_deleted_class_named_in_a_changelog_is_not_still_referenced(self):
+        git(self.repo, "switch", "-q", "main")
+        write(self.repo, "CHANGELOG.md", "Legacy was added\n")
+        write(self.repo, ".sfdx/tsconfig.sfdx.json", '{"Legacy": 1}\n')
+        write(self.repo, f"{D}/lwc/typings/legacy.d.ts", "declare module Legacy {}\n")
+        (self.repo / f"{D}/classes/UsesLegacy.cls").unlink()
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "docs")
+        git(self.repo, "switch", "-q", "-c", "remove")
+        (self.repo / f"{D}/classes/Legacy.cls").unlink()
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        rules = {s["rule"] for s in pf.build(self.repo, "main", "remove")["signals"]}
+        self.assertEqual(rules, {"destructive-change"})
+
+    def test_untested_code_that_is_not_new_is_a_low_signal(self):
+        write(self.repo, f"{D}/classes/Legacy.cls", "public class Legacy { Integer i; }\n")
+        write(self.repo, f"{D}/classes/Fresh.cls", "public class Fresh {}\n")
+        ctx = self.run_preflight()
+        found = {s["component"]: s["severity"] for s in ctx["signals"] if s["rule"] == "apex-without-test"}
+        self.assertEqual(found, {"ApexClass:Legacy": "low", "ApexClass:Fresh": "medium"})
+
+    def test_gate_counts_from_the_threshold_up(self):
+        write(self.repo, f"{D}/classes/Legacy.cls", "public class Legacy { Integer i; }\n")
+        write(self.repo, f"{D}/profiles/Admin.profile-meta.xml", "<Profile>\n</Profile>\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        script = str(ROOT / "doctor" / "preflight_context.py")
+        counts = {}
+        for level in (None, "low", "high"):
+            out, github = Path(self.tmp.name) / "pf.json", Path(self.tmp.name) / f"out-{level}"
+            subprocess.run([sys.executable, script, "--repo-dir", str(self.repo), "--base", "main", "--head", "change",
+                            "--out", str(out)] + (["--min-severity", level] if level else []),
+                           check=True, capture_output=True, env={"GITHUB_OUTPUT": str(github), "PATH": __import__("os").environ["PATH"]})
+            counts[level] = dict(l.split("=") for l in github.read_text().splitlines())
+        self.assertEqual(counts[None]["signals"], "0")       # two low signals do not wake the agent
+        self.assertEqual(counts[None]["signals_total"], "2")
+        self.assertEqual(counts["low"]["signals"], "2")
+        self.assertEqual(counts["high"]["signals"], "0")
 
     def test_component_of(self):
         self.assertEqual(pf.component_of(f"{D}/classes/Score.cls-meta.xml"), {"type": "ApexClass", "name": "Score"})
