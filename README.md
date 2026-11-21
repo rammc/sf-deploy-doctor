@@ -10,7 +10,7 @@ A second workflow, the **pre-flight**, looks at a pull request before anything i
 
 Both run as [GitHub Agentic Workflows](https://github.com/github/gh-aw) in your own repository, are read-only by design, and install together with one command.
 
-> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md), [pre-flight with many risks](docs/example-preflight-combined.md), [pre-flight for a Lightning web component](docs/example-preflight-lwc.md)). The part of the doctor that reads logs has also been measured against the failed runs of real pipelines, see [the benchmarks](#what-happens-with-a-step-the-doctor-does-not-understand). The agents themselves have not run on a production pipeline yet, and all live runs used Claude as the engine. Expect changes.
+> **Status: early.** Both workflows have run against real orgs in a test repository; the examples on this page are their unedited output ([diagnosis](docs/example-report.md), [pre-flight](docs/example-preflight.md), [pre-flight with many risks](docs/example-preflight-combined.md), [pre-flight for a Lightning web component](docs/example-preflight-lwc.md)). The log reader has also been checked against failed runs of real pipelines, private and public. The agents have not run on a production pipeline yet, and all live runs used Claude as the engine. Expect changes.
 
 ## 😵 The problem
 
@@ -178,7 +178,7 @@ gh aw secrets bootstrap
 git add .gitattributes .github && git commit -m "Add Deploy Doctor"
 ```
 
-Merge the commit to your default branch. From then on every failed run of your deploy workflows gets a report, and every pull request that carries a risk gets a pre-flight comment. How good the report is depends on how much of your pipeline's output the doctor understands; see [Works with your pipeline](#-works-with-your-pipeline).
+Merge the commit to your default branch. From then on every failed run of your deploy workflows gets a report, and every pull request that carries a risk gets a pre-flight comment.
 
 <details>
 <summary><b>What each step does</b></summary>
@@ -241,42 +241,24 @@ Two things to know:
 
 ## 🧩 Works with your pipeline
 
-The doctor does not replace or wrap your deployment. It only needs the output of the Salesforce CLI in the job log:
+The doctor does not replace or wrap your deployment. It reads the job log of the failed run and understands:
 
-- `sf project deploy start` and `sf project deploy validate`, with or without `--dry-run`, also several deployments in one job
-- Apex tests that run as a step of their own with `sf apex run test`, as JSON or as the human-readable table
-- errors of the CLI itself: a command line it rejects, a failed login, a package installation, an exhausted API limit
+- `sf project deploy start` and `sf project deploy validate`, also several deployments in one job
+- `sf apex run test` as a step of its own
+- errors of the CLI itself, such as a failed login or a failed package installation
 - the composite actions of the [Salesforce DevOps Starter Kit](https://github.com/svierk/salesforce-devops-starter-kit), for example [`svierk/sfdx-deploy`](https://github.com/svierk/sfdx-deploy)
-- any other wrapper that prints the CLI result
 
-The doctor reads both forms of output. If a command printed its result as JSON, that is used, because it is complete; the human-readable tables are read where there is no JSON, and for failed steps in addition to it.
-
-### What happens with a step the doctor does not understand
-
-Pipelines differ, and a failed step can be anything: a script of your own, a scanner, a tool the doctor has never seen. For every failed step the context keeps the command, the lines that look like an error and the last lines of output, with warnings counted instead of listed. If the structured findings do not explain a failed step, the agent diagnoses from that excerpt and says that it did. You get a weaker diagnosis instead of none.
-
-This exists because the first versions failed here. They had only seen pipelines built for the test. Two benchmarks now keep the context builder honest, both run without the agent:
-
-| Benchmark | Failed runs | Known pattern found | Structured, no pattern yet | Excerpt of the failed step, or nothing |
-| --- | --- | --- | --- | --- |
-| One large private pipeline (several deployments per job, tests as a separate step) | 30 | 23 | 0 | 7 |
-| Public repositories found through GitHub code search, 37 of them with a failed Salesforce step | 118 | 84 | 14 | 19 |
-
-The first version explained none of the thirty private runs. The public runs then showed what the private pipeline never used: test results in the human-readable table, CLI errors that span several lines or come as JSON, package installations. One log of the 118 had expired. Of the seven private runs in the last column, four have a test run that never finished and three fail only in a code scanner or a report step; for two of those three the log holds no error line at all. Most of the nineteen public runs with an excerpt only fail in something the doctor is not about: a custom script, infrastructure, a package version build.
-
-The numbers say what the script extracts, not how good the agent's report is.
+Output as JSON and as the human-readable tables both work. For a failed step of any other kind, such as a script of your own, the agent gets the last lines of its output and diagnoses from those.
 
 ### Recommended: print the deploy report on failure
 
-In CI the Salesforce CLI runs without a terminal, and then it reports *how many* Apex tests failed but not *which ones* or why. Add one step after your deployment so the full result lands in the log:
+In CI the Salesforce CLI reports *how many* Apex tests of a deployment failed, but not *which ones*. Add one step after your deployment so the full result lands in the log:
 
 ```yaml
 - name: Deploy report for Deploy Doctor
   if: failure()
   run: sf project deploy report --use-most-recent --json || true
 ```
-
-Deploy Doctor picks the result up from the log. Without this step it still diagnoses component failures and coverage, and for failed tests it tells you that the details are missing and how to add them, instead of guessing.
 
 ## 🔐 Security model
 
@@ -325,14 +307,6 @@ python3 doctor/preflight_context.py --base origin/main --head HEAD --out preflig
 ```
 
 </details>
-
-## 🗺️ Roadmap
-
-- **Pre-flight benchmark:** run the pre-flight over the history of public repositories and count false alarms, as was done for the diagnosis.
-- **Other engines:** a live run with Copilot; so far only the compile has been checked for it.
-- **Enrichment:** fetch the full result with `sf project deploy report` when the log is incomplete.
-- **History:** recognise a failure that already occurred in earlier runs and say since when.
-- **Skill:** the same doctor as an agent skill for local use.
 
 ## 🤝 Contributing
 
