@@ -8,7 +8,7 @@ Thank you for helping. The most useful contributions are small and come with evi
 2. Add the message to `test_known_messages` in `tests/test_deploy_context.py`, exactly as the org returned it. Remove usernames, org ids and record ids.
 3. Open a pull request and say where the message came from (which command, which kind of metadata).
 
-The catalog only holds messages an org actually returned. Please do not add patterns from memory.
+The catalog only holds messages that actually appeared in a deployment log, returned by an org or printed by the Salesforce CLI. Please do not add patterns from memory.
 
 ## A false alarm of the pre-flight
 
