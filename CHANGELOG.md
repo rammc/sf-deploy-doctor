@@ -2,6 +2,13 @@
 
 Each release is a tag. The workflows of a release check out the context builders at the same tag, so an installed workflow keeps running the scripts it was written for until you update it.
 
+## 0.5.1
+
+Found in the first live run with two orgs: the context listed a compile error for both jobs, and the agent still reported it for one org only and explained the difference with an assumption about the other org.
+
+- Every finding of a run with several failed jobs now states `inAllFailedJobs` and `notInJobs`, and the prompt tells the agent to copy the job names and forbids conclusions about an org that reported the same error.
+- The README no longer calls the shell allowlist a boundary. In that run the engine ran `find` although the list does not contain it; engines run commands they classify as read-only.
+
 ## 0.5.0
 
 Deployments beyond the pull request. A review pointed out six weaknesses, all confirmed in the code. Most of them only show on a pipeline that deploys release branches to several orgs, which the earlier versions were never measured on.

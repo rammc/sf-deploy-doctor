@@ -166,7 +166,7 @@ Run these in the root of your Salesforce repository:
 ```bash
 # 1. Install both workflows and the setup script
 gh extension install github/gh-aw
-gh aw add rammc/sf-deploy-doctor@v0.5.0
+gh aw add rammc/sf-deploy-doctor@v0.5.1
 
 # 2. Let the setup script find your deploy workflows, branches and package directories
 python3 .github/aw/deploy-doctor/setup.py            # shows what it found
@@ -183,7 +183,7 @@ Merge the commit to your default branch. From then on every failed run of your d
 <details>
 <summary><b>What each step does</b></summary>
 
-1. `gh aw add` copies `deploy-doctor.md` and `deploy-preflight.md` to `.github/workflows`, compiles them to `.lock.yml` files and puts the setup script under `.github/aw/deploy-doctor`. To install only one of the two, name it: `gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.5.0`.
+1. `gh aw add` copies `deploy-doctor.md` and `deploy-preflight.md` to `.github/workflows`, compiles them to `.lock.yml` files and puts the setup script under `.github/aw/deploy-doctor`. To install only one of the two, name it: `gh aw add rammc/sf-deploy-doctor/deploy-preflight@v0.5.1`.
 2. The setup script reads `.github/workflows` and `sfdx-project.json`. It looks for workflows that run `sf project deploy`, the older `sfdx force:source:deploy`, sfp or a deploy action, also behind reusable workflows, local actions and shell scripts. It writes their names and the branch patterns of your repository into the trigger of the doctor, and your package directories into the path filter of the pre-flight. It changes nothing else and sends nothing anywhere. If it misses a workflow, name it yourself: `--workflows "Deploy,PR Validation" --branches "main,feature/**"`.
 3. `gh aw secrets bootstrap` lists the secrets the workflows need and asks for the missing ones.
 
@@ -195,9 +195,9 @@ The workflows run on any engine gh-aw supports. Copilot is the default; pass `--
 
 | Engine | Install with | Secret |
 | --- | --- | --- |
-| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.5.0` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
-| Claude | `gh aw add rammc/sf-deploy-doctor@v0.5.0 --engine claude` | `ANTHROPIC_API_KEY` |
-| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.5.0 --engine codex` | shown by `gh aw secrets bootstrap` |
+| GitHub Copilot (default) | `gh aw add rammc/sf-deploy-doctor@v0.5.1` | `COPILOT_GITHUB_TOKEN`, or no secret at all with `permissions: copilot-requests: write` where your organisation has central Copilot billing |
+| Claude | `gh aw add rammc/sf-deploy-doctor@v0.5.1 --engine claude` | `ANTHROPIC_API_KEY` |
+| Codex and others | `gh aw add rammc/sf-deploy-doctor@v0.5.1 --engine codex` | shown by `gh aw secrets bootstrap` |
 
 The examples on this page were written with Claude. With an engine other than Copilot, `gh aw add` prints a notice about a new restricted secret; it tells you that the workflow will read that secret, which is what you asked for.
 
@@ -268,7 +268,7 @@ In CI the Salesforce CLI reports *how many* Apex tests of a deployment failed, b
 - **No org access.** The agent never receives credentials for Salesforce and cannot call the org. Only your existing deploy workflow talks to it.
 - **Read-only in the repository.** The workflow runs with `contents: read`. The agent cannot push, re-run or approve anything. Its only outputs are one comment or one issue, enforced by gh-aw [safe outputs](https://github.github.com/gh-aw/). Read-only refers to your repository and your org. On the runner, which is thrown away after the job, the agent can write files; gh-aw needs that to hand over its report.
 - **Log text is data.** Error messages from the org are treated as untrusted input. Usernames, e-mail addresses and record ids are removed before the agent sees the context.
-- **Small tool surface.** The shell commands the agent may run are `cat`, `head`, `tail`, `grep`, `ls`, `wc`, `jq`, `sort` and `uniq`, plus a few gh-aw adds itself.
+- **Small tool surface.** The workflow allows the agent `cat`, `head`, `tail`, `grep`, `ls`, `wc`, `jq`, `sort` and `uniq`, plus a few gh-aw adds itself. This list is not the boundary: an engine may run further commands it classifies as read-only (in a test run Claude used `find`). What holds is the read-only token and the gh-aw sandbox around the agent.
 
 ### What leaves your repository
 

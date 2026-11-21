@@ -32,7 +32,7 @@ on:
       uses: actions/checkout@v7
       with:
         repository: rammc/sf-deploy-doctor
-        ref: v0.5.0
+        ref: v0.5.1
         path: .deploy-doctor/tool
         persist-credentials: false
     - name: Collect signals from the diff
@@ -76,7 +76,7 @@ steps:
     uses: actions/checkout@v7
     with:
       repository: rammc/sf-deploy-doctor
-      ref: v0.5.0
+      ref: v0.5.1
       path: .deploy-doctor/tool
       persist-credentials: false
   - name: Build the pre-flight context

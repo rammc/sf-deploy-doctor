@@ -461,8 +461,15 @@ class SeveralJobs(unittest.TestCase):
         self.assertEqual(len(parsed["componentFailures"]), len(single["componentFailures"]))
         self.assertEqual({tuple(f["jobs"]) for f in parsed["componentFailures"]}, {("deploy (uat)", "deploy (prod)")})
         self.assertEqual([j["name"] for j in parsed["jobs"]], ["deploy (uat)", "deploy (prod)", "deploy (int)"])
+        self.assertEqual({(f["inAllFailedJobs"], tuple(f["notInJobs"])) for f in parsed["componentFailures"]},
+                         {(False, ("deploy (int)",))})
         self.assertTrue(all(s["job"] for s in parsed["failedSteps"]))
         self.assertEqual({s["job"] for s in parsed["failedSteps"]}, {"deploy (uat)", "deploy (prod)", "deploy (int)"})
+
+    def test_a_finding_in_every_job_says_so(self):
+        log = (FIXTURES / "compile-ci-job.log").read_text()
+        ctx = dc.enrich(dc.parse_jobs([("deploy (uat)", log), ("deploy (prod)", log)]), None, None, None, CATALOG)
+        self.assertEqual({(f["inAllFailedJobs"], tuple(f["notInJobs"])) for f in ctx["componentFailures"]}, {(True, ())})
 
     def test_context_of_several_jobs(self):
         ctx = dc.enrich(dc.parse_jobs(self.logs()), None, None, None, CATALOG)
