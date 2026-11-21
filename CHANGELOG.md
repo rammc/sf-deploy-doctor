@@ -2,6 +2,21 @@
 
 Each release is a tag. The workflows of a release check out the context builders at the same tag, so an installed workflow keeps running the scripts it was written for until you update it.
 
+## 0.5.0
+
+Deployments beyond the pull request. A review pointed out six weaknesses, all confirmed in the code. Most of them only show on a pipeline that deploys release branches to several orgs, which the earlier versions were never measured on.
+
+- **What a run changed** is no longer guessed from the last commit. A pull request is compared with its base, a push or manual run with the commit of the last successful run of the same workflow on that branch. Without either, `changedInThisRun` is unknown, and the agent is told not to conclude anything about org drift from it. The context says what it compared in `changeRange`.
+- **Several failed jobs**, for example one per org, are read one by one. Every finding lists the jobs it occurred in, every failed step names its job, and the limit of six steps applies per job. Steps left out are counted in `failedStepsOmitted`.
+- **An older report is only closed by a newer one about the same deploy workflow** (`close-older-key`), not by any report.
+- **Pre-flight threshold:** the agent runs from medium signals up (`--min-severity`). A missing reference that the base branch already uses is low, and so are Apex without a test that had none before the change and a change to a flow that was already active.
+- **Fewer false alarms in the pre-flight**, found by running it over the history of twelve public repositories: a deleted component that is only named in a changelog, a type declaration or a configuration file is no longer "still referenced"; a missing reference in a project that depends on other packages (`sfdx-project.json`) is low, because unlocked packages have no namespace and their components look local; custom labels in `.labels` files are read. Over 470 changes the agent would have run 197 times before and runs 55 times now.
+- **Record ids** are recognised by their shape instead of a short list of prefixes. Case and task ids were not removed before.
+- The catalog no longer takes `Maintenance_Plan__c` or any other name with "maintenance" in it for a platform outage.
+- `find` and `sed` are gone from the agent's shell commands. The README now says what read-only covers and that source code and log excerpts are sent to the provider of the AI engine.
+
+Updating: `changedInThisRun` used to be `false` where it is now `null` for runs without a base. If you changed `close-older-issues` or the `bash:` list in your copy, `gh aw update` may ask you to resolve a conflict there.
+
 ## 0.4.0
 
 Checked against public repositories. 0.3.0 was built on the failed runs of one pipeline. Run over 118 failed Salesforce steps from 37 public repositories, it missed formats that pipeline never used.

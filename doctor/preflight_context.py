@@ -225,6 +225,10 @@ def check_deleted(root: Path, head: str, comp: dict, files: list[str], signals: 
     else:
         users = [f for f in files_mentioning(root, head, leaf)
                  if not os.path.basename(f).startswith(leaf + ".")]
+    # A changelog, a type declaration or an editor configuration that still names the
+    # component does not break a deployment. Only metadata counts.
+    users = [f for f in users if (component_of(f) or f.endswith(".xml"))
+             and not f.endswith((".md", ".d.ts", ".json")) and "/__tests__/" not in f]
     if users:
         signals.add("deleted-still-referenced", "high", "A deleted component is still referenced", comp,
                     ", ".join(users[:5]) + (f" and {len(users) - 5} more" if len(users) > 5 else ""),
@@ -286,9 +290,13 @@ def check_apex(root: Path, head: str, comp: dict, files: list[str], changed: lis
     tests = [f for f in files_mentioning(root, head, comp["name"], "*.cls")
              if f != comp["file"] and is_test_class(file_at(root, head, f))]
     if not tests:
-        signals.add("apex-without-test", "medium", "No test class refers to this Apex code", comp, comp["file"],
+        # A class that had no test before this pull request is the state of the project, not news.
+        new = comp["change"] == "added"
+        signals.add("apex-without-test", "medium" if new else "low", "No test class refers to this Apex code", comp,
+                    comp["file"],
                     "A deployment to production needs 75 % coverage; with RunSpecifiedTests every deployed class "
-                    "needs it from the specified tests alone. For a trigger the tests have to do DML on its object.",
+                    "needs it from the specified tests alone. For a trigger the tests have to do DML on its object."
+                    + ("" if new else " The code is not new: it had no test that names it before this change either."),
                     "Add a test class, or name the test that covers this code if it does so indirectly.")
         return
     changed_files = {c["file"] for c in changed}
@@ -360,7 +368,7 @@ def apex_class_file(files: list[str], name: str) -> str | None:
 def custom_labels(root: Path, head: str, files: list[str]) -> set[str]:
     names: set[str] = set()
     for f in files:
-        if f.endswith(".labels-meta.xml"):
+        if f.endswith((".labels-meta.xml", ".labels")):  # source format and metadata format
             names.update(re.findall(r"<fullName>([^<]+)</fullName>", file_at(root, head, f)))
         elif f.endswith(".label-meta.xml"):  # decomposed labels: one file per label
             names.add(os.path.basename(f)[: -len(".label-meta.xml")])
@@ -604,6 +612,57 @@ def merge_same_reference(items: list[dict]) -> list[dict]:
     return out
 
 
+REFERENCE_NAME = re.compile(r"^`([^`]+)`")
+
+
+def package_dependencies(root: Path, head: str) -> list[str]:
+    """Packages that sfdx-project.json lists as dependencies of a package directory."""
+    try:
+        project = json.loads(file_at(root, head, "sfdx-project.json") or "{}")
+    except ValueError:
+        return []
+    names = []
+    for directory in project.get("packageDirectories") or []:
+        for dep in directory.get("dependencies") or []:
+            name = str(dep.get("package") or "").split("@")[0]
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def mark_established(root: Path, base: str, head: str, items: list[dict]) -> None:
+    """A name the base branch already uses is not something this pull request introduces.
+
+    Many orgs are only partly in version control. A reference to a field that is
+    missing from the repository but used in other files for years will deploy as it
+    always did, so it is worth a look and not a likely failure.
+    """
+    start = git(root, "merge-base", base, head, check=False).strip()
+    if not start:
+        return
+    packages = package_dependencies(root, head)
+    for item in items:
+        if item["rule"] not in ("reference-not-in-source", "ui-reference-not-in-source"):
+            continue
+        name = REFERENCE_NAME.match(item["why"])
+        if not name:
+            continue
+        if packages:
+            # Unlocked packages without a namespace: their components look like local ones.
+            item["severity"] = "low"
+            item["dependencies"] = packages[:10]
+            item["why"] += (f" The project depends on {len(packages)} other package(s), which may define it; "
+                            "their contents are not in this repository.")
+            continue
+        leaf = name.group(1).rpartition(".")[2]
+        used = files_mentioning(root, start, leaf)
+        if used:
+            item["severity"] = "low"
+            item["usedBefore"] = {"files": len(used), "example": used[0]}
+            item["why"] += (f" The base branch already uses the name in {len(used)} file(s), so it most likely "
+                            "exists in the target orgs and is only missing from the repository.")
+
+
 def build(root: Path, base: str, head: str) -> dict:
     files = files_at(root, head)
     comps = changed_components(root, base, head, files)
@@ -638,12 +697,19 @@ def build(root: Path, base: str, head: str) -> dict:
         elif comp["type"] == "Flow":
             new = file_at(root, head, comp["file"])
             if xml_value(new, "status") == "Active" and comp["change"] == "modified":
-                signals.add("active-flow-change", "medium", "An active flow is modified", comp, "<status>Active</status>",
+                # Editing a flow that is active is the everyday case in a project with flows. What is
+                # worth a second look is a flow that this pull request switches on.
+                start = git(root, "merge-base", base, head, check=False).strip() or base
+                was_active = xml_value(file_at(root, start, comp["file"]), "status") == "Active"
+                signals.add("active-flow-change", "low" if was_active else "medium",
+                            "An active flow is modified" if was_active else "A flow is activated", comp,
+                            "<status>Active</status>",
                             "The change goes live as a new active version, or the deployment fails if the org does "
                             "not deploy flows as active. Paused interviews keep running on the old version.",
                             "Check the org setting 'Deploy processes and flows as active' and the flow tests.")
 
     signals.items = merge_same_reference(signals.items)
+    mark_established(root, base, head, signals.items)
 
     by_type: dict[str, int] = {}
     for c in comps:
@@ -667,6 +733,10 @@ def build(root: Path, base: str, head: str) -> dict:
                        "It is not a prediction: no org was consulted.",
             "severity": "high: likely to fail the deployment or lose data. medium: fails under common conditions. "
                         "low: worth a look.",
+            "usedBefore": "On a missing reference: the base branch already uses the name in that many files. The "
+                          "reference is then not new, and the signal is low.",
+            "dependencies": "On a missing reference: the packages the project depends on according to "
+                            "sfdx-project.json. One of them may define the name, so the signal is low.",
             "reference-not-in-source": "The name is not defined anywhere in the repository. It may still exist in "
                                        "the org (created by hand, standard feature, unmanaged leftovers).",
             "ui-reference-not-in-source": "A UI bundle (React, Angular or another front-end application) names a "
@@ -685,19 +755,27 @@ def main() -> int:
     ap.add_argument("--head", default="HEAD", help="git ref of the pull request (default: HEAD)")
     ap.add_argument("--repo-dir", default=".")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--min-severity", choices=SEVERITIES, default="medium",
+                    help="the lowest severity that counts for the `signals` output, which decides whether the "
+                         "agent runs (default: medium). Lower signals stay in the file.")
     args = ap.parse_args()
 
     context = build(Path(args.repo_dir).resolve(), args.base, args.head)
+    counted = SEVERITIES[:SEVERITIES.index(args.min_severity) + 1]
+    relevant = sum(context["totals"][s] for s in counted)
+    context["gate"] = {"minSeverity": args.min_severity, "signals": relevant}
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(context, indent=2, ensure_ascii=False) + "\n")
     t = context["totals"]
     print(f"preflight-context: {context['summary']['components']} component(s) changed, "
-          f"{t['high']} high / {t['medium']} medium / {t['low']} low signal(s) -> {out}")
+          f"{t['high']} high / {t['medium']} medium / {t['low']} low signal(s), "
+          f"{relevant} at {args.min_severity} or above -> {out}")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
             fh.write(f"components={context['summary']['components']}\n")
-            fh.write(f"signals={len(context['signals'])}\n")
+            fh.write(f"signals={relevant}\n")
+            fh.write(f"signals_total={len(context['signals'])}\n")
     return 0
 
 

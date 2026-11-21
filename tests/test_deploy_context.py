@@ -335,7 +335,7 @@ class RepositoryCorrelation(unittest.TestCase):
 
     def context(self):
         parsed = dc.parse_log((FIXTURES / "compile-human.log").read_text())
-        return dc.enrich(parsed, self.repo, None, "HEAD", CATALOG)
+        return dc.enrich(parsed, self.repo, "HEAD~1", "HEAD", CATALOG)
 
     def test_source_files_and_change_flags(self):
         failures = {(f["name"], f["patternId"]): f for f in self.context()["componentFailures"]}
@@ -364,6 +364,142 @@ class RepositoryCorrelation(unittest.TestCase):
         self.assertEqual(ctx["totals"]["componentFailures"], 4)
         self.assertEqual(ctx["totals"]["byCategory"], {"missing-dependency": 4})
         self.assertEqual(ctx["changedFiles"]["count"], 1)
+        self.assertEqual((ctx["changeRange"]["known"], ctx["changeRange"]["basis"]), (True, "given"))
+
+    def test_without_a_base_nothing_is_called_unchanged(self):
+        """The last commit alone says nothing about a release branch: no base, no verdict."""
+        parsed = dc.parse_log((FIXTURES / "compile-human.log").read_text())
+        ctx = dc.enrich(parsed, self.repo, None, "HEAD", CATALOG, {"kind": None, "why": "no earlier run"})
+        self.assertEqual({f["changedInThisRun"] for f in ctx["componentFailures"]}, {None})
+        self.assertIsNone(ctx["changedFiles"])
+        self.assertEqual(ctx["changeRange"], {"known": False, "base": None, "head": "HEAD", "basis": None,
+                                              "comparedWith": None, "why": "no earlier run"})
+
+    def test_a_base_git_does_not_know_is_unknown_too(self):
+        parsed = dc.parse_log((FIXTURES / "compile-human.log").read_text())
+        ctx = dc.enrich(parsed, self.repo, "0" * 40, "HEAD", CATALOG, {"kind": "last-successful-run", "base": "0" * 40})
+        self.assertFalse(ctx["changeRange"]["known"])
+        self.assertIn("could not compare", ctx["changeRange"]["why"])
+
+    def test_a_release_branch_is_compared_with_the_last_green_run(self):
+        base = "force-app/main/default"
+        green = subprocess.run(["git", "-C", str(self.repo), "rev-parse", "HEAD~1"], check=True,
+                               capture_output=True, text=True).stdout.strip()
+        for n in range(3):  # more commits after the one that touched the class
+            write(self.repo, f"{base}/classes/Other{n}.cls")
+            git(self.repo, "add", "-A")
+            git(self.repo, "commit", "-q", "-m", f"commit {n}")
+        parsed = dc.parse_log((FIXTURES / "compile-human.log").read_text())
+        ctx = dc.enrich(parsed, self.repo, green, "HEAD", CATALOG, {"kind": "last-successful-run", "base": green,
+                                                                    "run": {"number": 7, "url": "u"}})
+        cls = next(f for f in ctx["componentFailures"] if f["name"] == "DoctorBrokenService")
+        self.assertTrue(cls["changedInThisRun"])
+        self.assertEqual(ctx["changedFiles"]["count"], 4)
+        self.assertEqual(ctx["changeRange"]["run"], {"number": 7, "url": "u"})
+
+
+class ChangeBase(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.answers = {}
+        self._gh = dc.gh
+
+        def fake(*args):
+            self.calls.append(args[-1])
+            for key, value in self.answers.items():
+                if key in args[-1]:
+                    if isinstance(value, Exception):
+                        raise value
+                    return json.dumps(value)
+            raise subprocess.CalledProcessError(1, "gh")
+        dc.gh = fake
+
+    def tearDown(self):
+        dc.gh = self._gh
+
+    def test_pull_request(self):
+        run = {"head_sha": "h", "event": "pull_request", "pull_requests": [{"number": 4, "base": {"sha": "b"}}]}
+        self.assertEqual(dc.change_base("o/r", run), {"kind": "pull-request", "base": "b", "pullRequest": 4})
+        self.assertEqual(self.calls, [])
+
+    def test_pull_request_from_a_fork(self):
+        self.answers["commits/h/pulls"] = [{"number": 9, "head": {"sha": "h"}, "base": {"sha": "b"}}]
+        run = {"head_sha": "h", "event": "pull_request", "pull_requests": []}
+        self.assertEqual(dc.change_base("o/r", run), {"kind": "pull-request", "base": "b", "pullRequest": 9})
+
+    def test_push_uses_the_last_successful_run_of_the_branch(self):
+        self.answers["workflows/11/runs"] = {"workflow_runs": [
+            {"run_number": 31, "head_sha": "later"},   # a re-run that finished after this one
+            {"run_number": 28, "head_sha": "h"},       # the same commit says nothing
+            {"run_number": 25, "head_sha": "green", "html_url": "u"},
+        ]}
+        run = {"head_sha": "h", "event": "push", "head_branch": "release/2026.11", "workflow_id": 11,
+               "run_number": 30, "pull_requests": []}
+        self.assertEqual(dc.change_base("o/r", run), {"kind": "last-successful-run", "base": "green",
+                                                      "run": {"number": 25, "url": "u"}})
+        self.assertIn("branch=release%2F2026.11", self.calls[0])
+
+    def test_first_run_on_a_branch_has_no_base(self):
+        self.answers["workflows/11/runs"] = {"workflow_runs": []}
+        run = {"head_sha": "h", "event": "workflow_dispatch", "head_branch": "uat", "workflow_id": 11, "run_number": 1}
+        found = dc.change_base("o/r", run)
+        self.assertIsNone(found["kind"])
+        self.assertNotIn("base", found)
+
+
+class SeveralJobs(unittest.TestCase):
+    """One job per org: every finding says where it occurred."""
+
+    def logs(self):
+        compile_log = (FIXTURES / "compile-ci-job.log").read_text()
+        tests_log = (FIXTURES / "tests-ci-job.log").read_text()
+        return [("deploy (uat)", compile_log), ("deploy (prod)", compile_log), ("deploy (int)", tests_log)]
+
+    def test_findings_carry_their_jobs(self):
+        parsed = dc.parse_jobs(self.logs())
+        single = dc.parse_text((FIXTURES / "compile-ci-job.log").read_text())
+        self.assertEqual(len(parsed["componentFailures"]), len(single["componentFailures"]))
+        self.assertEqual({tuple(f["jobs"]) for f in parsed["componentFailures"]}, {("deploy (uat)", "deploy (prod)")})
+        self.assertEqual([j["name"] for j in parsed["jobs"]], ["deploy (uat)", "deploy (prod)", "deploy (int)"])
+        self.assertTrue(all(s["job"] for s in parsed["failedSteps"]))
+        self.assertEqual({s["job"] for s in parsed["failedSteps"]}, {"deploy (uat)", "deploy (prod)", "deploy (int)"})
+
+    def test_context_of_several_jobs(self):
+        ctx = dc.enrich(dc.parse_jobs(self.logs()), None, None, None, CATALOG)
+        self.assertEqual(ctx["source"], "log-per-job")
+        self.assertTrue(all("jobs" in f and f["patternId"] for f in ctx["componentFailures"]))
+        missing = [d for d in ctx["detailsMissing"]]
+        self.assertTrue(all(d["job"] == "deploy (int)" for d in missing))
+        self.assertEqual(ctx["deployment"]["job"], "deploy (uat)")
+
+    def test_one_job_reads_like_before(self):
+        text = (FIXTURES / "multi-step-ci-job.log").read_text()
+        self.assertEqual(dc.parse_jobs([("validate", text)]), dc.parse_text(text))
+
+    def test_steps_left_out_are_counted(self):
+        step = "##[group]Run sf thing {n}\n##[endgroup]\nsomething failed {n}\n##[error]Process completed with exit code 1.\n"
+        text = "".join(step.format(n=n) + "ok\nok\n" for n in range(9))
+        parsed = dc.parse_text(text)
+        self.assertEqual((len(parsed["failedSteps"]), parsed["failedStepsOmitted"]), (dc.MAX_FAILED_STEPS, 3))
+
+
+class Redaction(unittest.TestCase):
+    def test_record_ids_of_any_object(self):
+        for record_id in ("5005g00000AbCdE", "00TAb00001xyzABAAA", "a0BAb00001xyzAB", "00D5g000004abcdEAA",
+                          "0Af5g00000Xyz12CAA", "m0Xab0000000123"):
+            self.assertEqual(dc.redact(f"record {record_id} is locked"), "record <id> is locked", record_id)
+
+    def test_names_that_only_look_like_ids_stay(self):
+        for word in ("AccountScoreSvc", "e2eTestRunner01", "k8sDeployStep12", "202611201234567", "abcdef012345678",
+                     "Account_Score__c", "DoctorBrokenService"):
+            self.assertEqual(dc.redact(word), word)
+
+    def test_maintenance_is_not_a_field_service_object(self):
+        for text in ("Weird text about Maintenance_Plan__c", "Something odd on MaintenancePlan layout",
+                     "Maintenance Plan: bad value for restricted picklist"):
+            self.assertNotEqual(dc.classify(text, CATALOG)["patternId"], "network-or-platform", text)
+        for text in ("The org is under maintenance", "Service unavailable during scheduled maintenance"):
+            self.assertEqual(dc.classify(text, CATALOG)["patternId"], "network-or-platform", text)
 
 
 if __name__ == "__main__":

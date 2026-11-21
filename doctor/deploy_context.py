@@ -28,6 +28,7 @@ import json
 import os
 import re
 import subprocess
+import urllib.parse
 import sys
 from pathlib import Path
 
@@ -106,7 +107,23 @@ def redact(text: str) -> str:
     # Aura descriptors look like URLs (markup://c:myCard). The safe-output filter of the
     # workflow redacts unknown URL schemes, so write them the way an import does: c/myCard.
     text = re.sub(r"\bmarkup://([A-Za-z0-9_]+):", r"\1/", text)
-    return re.sub(r"\b(?:00[5DQ]|001|003|006|0Af|01p|01q|07M|a[0-9A-Za-z]{2})[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?\b", "<id>", text)
+    return RECORD_ID.sub(lambda m: "<id>" if is_record_id(m.group(0)) else m.group(0), text)
+
+
+# A record id is 15 characters, or 18 with the checksum. The key prefix (first three
+# characters) differs per object and there are hundreds of them, so the shape decides:
+# standard prefixes start with a digit, custom objects, custom metadata, external
+# objects and knowledge with a, m, e or k followed by a digit.
+RECORD_ID = re.compile(r"(?<![A-Za-z0-9_])[0-9A-Za-z]{15}(?:[A-Z0-5]{3})?(?![A-Za-z0-9_])")
+
+
+def is_record_id(word: str) -> bool:
+    body = word[:15]
+    if not (body[0].isdigit() or (body[0] in "aemk" and body[1].isdigit())):
+        return False
+    # After the prefix come the instance and a zero-padded counter, so real ids carry "00" early.
+    digits = sum(c.isdigit() for c in body)
+    return "00" in body[3:10] and digits < 15 and not re.fullmatch(r"[0-9a-f]{15}|[0-9a-f]{18}", word)
 
 
 def parse_table(lines: list[str], start: int) -> tuple[list[list[str]], int]:
@@ -494,7 +511,11 @@ def parse_text(text: str) -> dict:
     for message in cli_errors:
         if message not in out["otherErrors"]:
             out["otherErrors"].append(message)
-    out["failedSteps"] = failed_steps(lines)
+    steps = failed_steps(lines)
+    out["failedSteps"] = steps[:MAX_FAILED_STEPS]
+    for step in steps[MAX_FAILED_STEPS:]:
+        step.pop("_raw")
+    out["failedStepsOmitted"] = len(steps) - len(out["failedSteps"])
     # A failed step may print the human-readable result of a deployment while other
     # steps printed JSON. Read it too and keep what the JSON did not already say.
     for step in out["failedSteps"]:
@@ -513,7 +534,64 @@ def parse_text(text: str) -> dict:
 
 ERRORISH = re.compile(r"(?i)\b(error|errors|failed|failure|exception|not found|timed? ?out|timeout|denied|invalid|"
                       r"cannot|can't|unable|refused|unauthori[sz]ed|forbidden|missing|exit code)\b")
-MAX_FAILED_STEPS = 6
+MAX_FAILED_STEPS = 6  # per job
+MAX_FAILED_STEPS_RUN = 24
+
+
+def parse_jobs(logs: list[tuple[str, str]]) -> dict:
+    """One context for a run with several failed jobs.
+
+    A pipeline that deploys to several orgs (a matrix, or one job per environment)
+    fails in each of them for its own reasons. Every job is read on its own, and
+    every finding says in `jobs` where it occurred; the same finding in three jobs
+    is listed once with three names. A run with one failed job reads as before.
+    """
+    if len(logs) == 1:
+        return parse_text(logs[0][1])
+    out = {"deployment": {}, "componentFailures": [], "testFailures": [], "coverageWarnings": [],
+           "otherErrors": [], "failedSteps": [], "failedStepsOmitted": 0, "jobs": []}
+    runs = {"runs": 0, "passing": 0, "failing": 0, "total": 0}
+    for name, text in logs:
+        part = parse_text(text)
+        for key in ("componentFailures", "testFailures", "coverageWarnings"):
+            for item in part[key]:
+                same = next((x for x in out[key] if {k: v for k, v in x.items() if k != "jobs"} == item), None)
+                if same:
+                    same["jobs"].append(name)
+                else:
+                    out[key].append({**item, "jobs": [name]})
+        for message in part["otherErrors"]:
+            same = next((x for x in out["otherErrors"] if x["text"] == message), None)
+            if same:
+                same["jobs"].append(name)
+            else:
+                out["otherErrors"].append({"text": message, "jobs": [name]})
+        room = max(0, MAX_FAILED_STEPS_RUN - len(out["failedSteps"]))
+        out["failedSteps"] += [{"job": name, **step} for step in part["failedSteps"][:room]]
+        out["failedStepsOmitted"] += part["failedStepsOmitted"] + max(0, len(part["failedSteps"]) - room)
+        if "testRuns" in part:
+            for key in runs:
+                runs[key] += part["testRuns"][key]
+        failing = (part["deployment"].get("tests") or {}).get("failing", 0)
+        out["jobs"].append({"name": name, "source": part["source"], "deployment": part["deployment"],
+                            "findings": {"componentFailures": len(part["componentFailures"]),
+                                         "testFailures": max(len(part["testFailures"]), int(failing or 0)),
+                                         "testFailuresWithDetails": len(part["testFailures"]),
+                                         "coverageWarnings": len(part["coverageWarnings"]),
+                                         "otherErrors": len(part["otherErrors"]),
+                                         "failedSteps": len(part["failedSteps"])}})
+        if "logTail" in part and "logTail" not in out:
+            out["logTail"] = part["logTail"]
+    if runs["runs"]:
+        out["testRuns"] = runs
+    # The fields a reader of a single-job run expects stay where they are.
+    first = next((j for j in out["jobs"] if j["deployment"].get("status") not in (None, "Succeeded")), None) \
+        or next((j for j in out["jobs"] if j["deployment"]), None)
+    if first:
+        out["deployment"] = dict(first["deployment"])
+        out["deployment"]["job"] = first["name"]
+    out["source"] = "log-per-job"
+    return out
 
 
 def failed_steps(lines: list[str]) -> list[dict]:
@@ -547,7 +625,7 @@ def failed_steps(lines: list[str]) -> list[dict]:
         steps.append({"command": command, "error": error, "outputLines": len(body), "warnings": len(warnings),
                       "errorLines": signals[-25:], "lastLines": kept[-20:], "_raw": raw})
         last_end = i + 1
-    return steps[:MAX_FAILED_STEPS]
+    return steps
 
 
 # ── repository ──────────────────────────────────────────────────────────────
@@ -599,16 +677,19 @@ def find_reference(files: list[str], ref: str) -> str | None:
 
 
 def changed_files(root: Path, base: str | None, head: str | None) -> list[str] | None:
-    if not head:
+    """The files between base and head, or None when the range is not known.
+
+    Without a base there is no guess: the last commit alone says nothing about a
+    release branch with forty commits, and "not changed" would then be wrong.
+    """
+    if not head or not base:
         return None
-    for spec in ([f"{base}...{head}"] if base else []) + [f"{head}~1..{head}"]:
-        try:
-            out = subprocess.run(["git", "-C", str(root), "diff", "--name-only", spec],
-                                 check=True, capture_output=True, text=True).stdout
-            return [l for l in out.splitlines() if l]
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            continue
-    return None
+    try:
+        out = subprocess.run(["git", "-C", str(root), "diff", "--name-only", f"{base}...{head}"],
+                             check=True, capture_output=True, text=True).stdout
+        return [l for l in out.splitlines() if l]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
 
 
 # ── classification ──────────────────────────────────────────────────────────
@@ -637,10 +718,23 @@ def reference_name(refs: dict) -> str | None:
     return None
 
 
-def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, catalog: dict) -> dict:
+BASIS = {
+    "pull-request": "the base of the pull request",
+    "last-successful-run": "the commit of the last successful run of the same workflow on this branch",
+    "given": "the base passed on the command line",
+}
+
+
+def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, catalog: dict,
+           basis: dict | None = None) -> dict:
     files = index_repo(root) if root else []
     changed = changed_files(root, base, head) if root else None
     changed_set = set(changed or [])
+    basis = dict(basis or {"kind": "given" if base else None})
+    if changed is None:
+        why = basis.get("why") or ("no base to compare with" if not base else
+                                   f"git could not compare {base[:12]} with the deployed commit")
+        basis = {"kind": None, "why": why}
 
     def touched(path: str | None):
         if path is None or changed is None:
@@ -682,8 +776,9 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
             w["changedInThisRun"] = touched(w["sourceFile"])
     classified_other = []
     for e in parsed["otherErrors"]:
-        e = redact(e)
-        classified_other.append({"text": e, **classify(e, catalog)})
+        where = {"jobs": e["jobs"]} if isinstance(e, dict) else {}
+        e = redact(e["text"] if isinstance(e, dict) else e)
+        classified_other.append({"text": e, **classify(e, catalog), **where})
     parsed["otherErrors"] = classified_other
     for step in parsed.get("failedSteps", []):
         step["command"] = redact(step["command"] or "")[:300] or None
@@ -701,13 +796,20 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
         parsed["logTail"] = [redact(l)[:300] for l in parsed["logTail"]]
 
     # Without a terminal the CLI prints how many tests failed but not which ones.
-    failing = (parsed["deployment"].get("tests") or {}).get("failing", 0)
+    per_job = [(j["name"], j["findings"]["testFailures"], j["findings"]["testFailuresWithDetails"])
+               for j in parsed.get("jobs", [])]
+    if not per_job:
+        per_job = [(None, (parsed["deployment"].get("tests") or {}).get("failing", 0), len(parsed["testFailures"]))]
+    failing = max(n for _, n, _ in per_job)
     parsed["detailsMissing"] = []
-    if failing > len(parsed["testFailures"]):
+    for job, reported, with_details in per_job:
+        if reported <= with_details:
+            continue
         parsed["detailsMissing"].append({
             "what": "testFailures",
-            "reported": failing,
-            "withDetails": len(parsed["testFailures"]),
+            **({"job": job} if job else {}),
+            "reported": reported,
+            "withDetails": with_details,
             "why": "The log states the number of failed tests but not their names and messages. "
                    "The Salesforce CLI leaves these details out when it runs without a terminal.",
             "fix": "Add a step after the deployment that prints the full result into the log: "
@@ -726,9 +828,18 @@ def enrich(parsed: dict, root: Path | None, base: str | None, head: str | None, 
         "byCategory": by_category,
     }
     parsed["changedFiles"] = None if changed is None else {"count": len(changed), "files": changed[:200]}
+    parsed["changeRange"] = {
+        "known": changed is not None, "base": base if changed is not None else None, "head": head,
+        "basis": basis.get("kind"),
+        "comparedWith": BASIS.get(basis.get("kind")) if changed is not None else None,
+        **({"run": basis["run"]} if changed is not None and basis.get("run") else {}),
+        **({"why": basis["why"]} if changed is None else {}),
+    }
     parsed["categories"] = catalog["categories"]
     parsed["legend"] = {
-        "changedInThisRun": "true: the file is part of the commits of this run. false: the file exists but was not touched, so the failure likely comes from the org or from another change. null: unknown (no source file found or no git range).",
+        "changedInThisRun": "true: the file changed between changeRange.base and the deployed commit. false: the file exists and did not change in that range. null: unknown, because no source file was found or the range is not known (changeRange.known is false). A null says nothing about who caused the failure.",
+        "changeRange": "What the deployed commit was compared with. basis pull-request: the files of the pull request. basis last-successful-run: everything since this workflow last succeeded on this branch, which is what the failed run tried to deploy on top of a working state.",
+        "jobs": "Only when several jobs failed: the failed jobs a finding occurred in. A pipeline with one job per org or a matrix fails per environment; the job name usually carries the environment.",
         "reference.inRepository": "For a missing dependency: whether the referenced component exists in the source at all. true means it exists but did not reach the org with this deployment; false means it is not in the repository.",
         "patternId": "Entry of the error catalog that matched. null means no known pattern; classify from the text and say so.",
     }
@@ -753,10 +864,39 @@ def job_log(repo: str, job_id) -> str:
         return gh("api", path)
 
 
-def load_run(run_id: str) -> tuple[dict, str, str | None, str | None]:
+def change_base(repo: str, run: dict) -> dict:
+    """What the deployed commit has to be compared with to see what this run changed."""
+    head = run.get("head_sha")
+    prs = run.get("pull_requests") or []
+    if prs:
+        return {"kind": "pull-request", "base": prs[0]["base"]["sha"], "pullRequest": prs[0]["number"]}
+    if str(run.get("event", "")).startswith("pull_request"):
+        # GitHub leaves `pull_requests` empty for a pull request from a fork.
+        try:
+            for pr in json.loads(gh("api", f"repos/{repo}/commits/{head}/pulls")):
+                if pr.get("head", {}).get("sha") == head:
+                    return {"kind": "pull-request", "base": pr["base"]["sha"], "pullRequest": pr["number"]}
+        except (subprocess.CalledProcessError, ValueError):
+            pass
+        return {"kind": None, "why": "the pull request of this run could not be determined"}
+    # A push or a manual run: everything since the workflow last succeeded on this branch.
+    try:
+        branch = urllib.parse.quote(run.get("head_branch") or "", safe="")
+        earlier = json.loads(gh("api", f"repos/{repo}/actions/workflows/{run['workflow_id']}/runs"
+                                       f"?branch={branch}&status=success&per_page=30")).get("workflow_runs", [])
+    except (subprocess.CalledProcessError, ValueError, KeyError):
+        return {"kind": None, "why": "the earlier runs of this workflow could not be listed"}
+    for old in earlier:
+        if old.get("run_number", 0) < run.get("run_number", 0) and old.get("head_sha") != head:
+            return {"kind": "last-successful-run", "base": old["head_sha"],
+                    "run": {"number": old.get("run_number"), "url": old.get("html_url")}}
+    return {"kind": None, "why": "this workflow has not succeeded on this branch before, so there is nothing to compare with"}
+
+
+def load_run(run_id: str) -> tuple[dict, list[tuple[str, str]], dict, str | None]:
     repo = os.environ.get("GITHUB_REPOSITORY") or json.loads(gh("repo", "view", "--json", "nameWithOwner"))["nameWithOwner"]
     run = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}"))
-    text, log_errors = "", []
+    logs, log_errors = [], []
     try:
         jobs = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")).get("jobs", [])
     except subprocess.CalledProcessError as err:
@@ -766,29 +906,28 @@ def load_run(run_id: str) -> tuple[dict, str, str | None, str | None]:
     failed = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")]
     for j in failed:
         try:
-            text += job_log(repo, j["id"]) + "\n"
+            logs.append((j.get("name") or str(j["id"]), job_log(repo, j["id"])))
         except subprocess.CalledProcessError as err:
             detail = (err.stderr or b"").decode("utf-8", "replace").strip().splitlines()
             reason = detail[-1] if detail else "gh api failed"
             if re.search(r"HTTP (404|410)", reason):
                 reason = "the log is no longer available (GitHub deleted it after the retention period, or it was removed)"
             log_errors.append(f"{j.get('name')}: {reason}")
-    if failed and not text.strip() and not log_errors:
+    if failed and not any(text.strip() for _, text in logs) and not log_errors:
         log_errors.append("the log download returned no content")
-    prs = run.get("pull_requests") or []
-    base = prs[0]["base"]["sha"] if prs else None
+    basis = change_base(repo, run)
     info = {
         "id": run.get("id"), "number": run.get("run_number"), "url": run.get("html_url"),
         "workflow": run.get("name"), "event": run.get("event"), "branch": run.get("head_branch"),
         "headSha": run.get("head_sha"), "conclusion": run.get("conclusion"),
-        "pullRequest": prs[0]["number"] if prs else None,
+        "pullRequest": basis.get("pullRequest"),
         "failedJobs": [{"name": j.get("name"),
                         "failedSteps": [s["name"] for s in j.get("steps", []) if s.get("conclusion") == "failure"]}
                        for j in failed],
-        "logLines": len(text.splitlines()),
+        "logLines": sum(len(text.splitlines()) for _, text in logs),
         "logErrors": log_errors,
     }
-    return info, text, base, run.get("head_sha")
+    return info, logs, basis, run.get("head_sha")
 
 
 def main() -> int:
@@ -805,11 +944,13 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    run_info, base, head = None, args.base, args.head
+    run_info, base, head, basis = None, args.base, args.head, None
     if args.run_id:
-        run_info, text, run_base, run_head = load_run(args.run_id)
-        base, head = base or run_base, head or run_head
-        parsed = parse_text(text)
+        run_info, logs, found, run_head = load_run(args.run_id)
+        if not base:
+            base, basis = found.get("base"), found
+        head = head or run_head
+        parsed = parse_jobs(logs) if logs else parse_text("")
     elif args.result_json:
         parsed = parse_result_json(json.loads(Path(args.result_json).read_text()))
         parsed["source"] = "result-json"
@@ -818,7 +959,7 @@ def main() -> int:
 
     root = None if args.no_repo else Path(args.repo_dir).resolve()
     catalog = load_catalog(Path(args.catalog) if args.catalog else None)
-    context = enrich(parsed, root, base, head, catalog)
+    context = enrich(parsed, root, base, head, catalog, basis)
     context = {"run": run_info, **context}
 
     out = Path(args.out)
