@@ -22,6 +22,7 @@ Python 3.9+, standard library only.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -30,7 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from deploy_context import BUNDLE_DIRS, TYPE_SUFFIX, find_reference  # noqa: E402
+from deploy_context import BUNDLE_DIRS, CONFIG_PATH, TYPE_SUFFIX, find_reference, parse_config  # noqa: E402
 
 SUFFIX_TYPE = {suffix: mtype for mtype, suffix in TYPE_SUFFIX.items()}
 SEVERITIES = ("high", "medium", "low")
@@ -630,6 +631,43 @@ def package_dependencies(root: Path, head: str) -> list[str]:
     return names
 
 
+def preflight_config(root: Path, base: str) -> dict:
+    """The `preflight` part of the configuration file, as it is on the base branch.
+
+    Never from the pull request itself: a change must not be able to switch off its own warnings."""
+    config = parse_config(file_at(root, base, CONFIG_PATH)).get("preflight") or {}
+    known = config.get("knownReferences") or []
+    severity = config.get("minSeverity")
+    if not isinstance(known, list) or not all(isinstance(k, str) for k in known):
+        print(f"::warning::Deploy Doctor ignores preflight.knownReferences in {CONFIG_PATH}: it has to be a list of names")
+        known = []
+    if severity is not None and severity not in SEVERITIES:
+        print(f"::warning::Deploy Doctor ignores preflight.minSeverity in {CONFIG_PATH}: "
+              f"it has to be one of {', '.join(SEVERITIES)}")
+        severity = None
+    return {"knownReferences": known, "minSeverity": severity}
+
+
+def mark_known(items: list[dict], known: list[str]) -> None:
+    """Names the team has declared as deliberately missing from the repository."""
+    for item in items:
+        if item["rule"] not in ("reference-not-in-source", "ui-reference-not-in-source"):
+            continue
+        name = REFERENCE_NAME.match(item["why"])
+        if not name:
+            continue
+        full = name.group(1)
+        leaf = full.rpartition(".")[2]
+        # The source does not always say which object a field belongs to, so an entry
+        # `Account.Legacy__c` also covers a bare `Legacy__c`.
+        hit = next((k for k in known if fnmatch.fnmatchcase(full, k) or fnmatch.fnmatchcase(leaf, k)
+                    or ("." not in full and fnmatch.fnmatchcase(full, k.rpartition(".")[2]))), None)
+        if hit:
+            item["severity"] = "low"
+            item["knownReference"] = hit
+            item["why"] += f" {CONFIG_PATH} on the base branch lists it as known (`{hit}`)."
+
+
 def mark_established(root: Path, base: str, head: str, items: list[dict]) -> None:
     """A name the base branch already uses is not something this pull request introduces.
 
@@ -647,13 +685,6 @@ def mark_established(root: Path, base: str, head: str, items: list[dict]) -> Non
         name = REFERENCE_NAME.match(item["why"])
         if not name:
             continue
-        if packages:
-            # Unlocked packages without a namespace: their components look like local ones.
-            item["severity"] = "low"
-            item["dependencies"] = packages[:10]
-            item["why"] += (f" The project depends on {len(packages)} other package(s), which may define it; "
-                            "their contents are not in this repository.")
-            continue
         leaf = name.group(1).rpartition(".")[2]
         used = files_mentioning(root, start, leaf)
         if used:
@@ -661,6 +692,13 @@ def mark_established(root: Path, base: str, head: str, items: list[dict]) -> Non
             item["usedBefore"] = {"files": len(used), "example": used[0]}
             item["why"] += (f" The base branch already uses the name in {len(used)} file(s), so it most likely "
                             "exists in the target orgs and is only missing from the repository.")
+        elif packages:
+            # Unlocked packages without a namespace: their components look like local ones.
+            # The name is still new to this repository, so a typo is as likely as a package field.
+            item["severity"] = "medium"
+            item["dependencies"] = packages[:10]
+            item["why"] += (f" The project depends on {len(packages)} other package(s), which may define it; "
+                            "their contents are not in this repository. The base branch does not use the name.")
 
 
 def build(root: Path, base: str, head: str) -> dict:
@@ -710,6 +748,8 @@ def build(root: Path, base: str, head: str) -> dict:
 
     signals.items = merge_same_reference(signals.items)
     mark_established(root, base, head, signals.items)
+    config = preflight_config(root, base)
+    mark_known(signals.items, config["knownReferences"])
 
     by_type: dict[str, int] = {}
     for c in comps:
@@ -718,6 +758,7 @@ def build(root: Path, base: str, head: str) -> dict:
     signals.items.sort(key=lambda s: (order[s["severity"]], s["rule"], s["component"] or ""))
     return {
         "range": {"base": base, "head": head},
+        "config": config,
         "summary": {
             "components": len(comps),
             "added": sum(c["change"] == "added" for c in comps),
@@ -733,10 +774,13 @@ def build(root: Path, base: str, head: str) -> dict:
                        "It is not a prediction: no org was consulted.",
             "severity": "high: likely to fail the deployment or lose data. medium: fails under common conditions. "
                         "low: worth a look.",
+            "knownReference": "On a missing reference: the entry of preflight.knownReferences in "
+                              ".github/deploy-doctor.json (base branch) that names it. The signal is low.",
             "usedBefore": "On a missing reference: the base branch already uses the name in that many files. The "
                           "reference is then not new, and the signal is low.",
             "dependencies": "On a missing reference: the packages the project depends on according to "
-                            "sfdx-project.json. One of them may define the name, so the signal is low.",
+                            "sfdx-project.json. One of them may define the name, so the signal is medium "
+                            "as long as the base branch does not use the name.",
             "reference-not-in-source": "The name is not defined anywhere in the repository. It may still exist in "
                                        "the org (created by hand, standard feature, unmanaged leftovers).",
             "ui-reference-not-in-source": "A UI bundle (React, Angular or another front-end application) names a "
@@ -755,12 +799,15 @@ def main() -> int:
     ap.add_argument("--head", default="HEAD", help="git ref of the pull request (default: HEAD)")
     ap.add_argument("--repo-dir", default=".")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--min-severity", choices=SEVERITIES, default="medium",
+    ap.add_argument("--min-severity", choices=SEVERITIES,
                     help="the lowest severity that counts for the `signals` output, which decides whether the "
-                         "agent runs (default: medium). Lower signals stay in the file.")
+                         "agent runs. Default: preflight.minSeverity of the configuration file on the base "
+                         "branch, else medium. Lower signals stay in the file.")
     args = ap.parse_args()
 
     context = build(Path(args.repo_dir).resolve(), args.base, args.head)
+    args.min_severity = args.min_severity or context.pop("config")["minSeverity"] or "medium"
+    context.pop("config", None)
     counted = SEVERITIES[:SEVERITIES.index(args.min_severity) + 1]
     relevant = sum(context["totals"][s] for s in counted)
     context["gate"] = {"minSeverity": args.min_severity, "signals": relevant}

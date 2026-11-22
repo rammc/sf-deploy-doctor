@@ -1,4 +1,5 @@
 """Tests for doctor/preflight_context.py. Run with: python3 -m unittest discover -s tests"""
+import json
 import subprocess
 import sys
 import tempfile
@@ -190,14 +191,32 @@ class Preflight(unittest.TestCase):
         self.assertEqual(found["Grown__c"]["usedBefore"], {"files": 1, "example": f"{D}/classes/Old.cls"})
         self.assertEqual(ctx["totals"], {"high": 1, "medium": 0, "low": 1})
 
-    def test_a_project_with_package_dependencies_gets_low_signals_for_missing_names(self):
+    def test_a_project_with_package_dependencies_gets_medium_signals_for_new_missing_names(self):
         """Unlocked packages have no namespace, so their fields look like fields of this project."""
         write(self.repo, "sfdx-project.json", '{"packageDirectories": [{"path": "force-app", "dependencies": '
                                               '[{"package": "shared-base", "versionNumber": "1.0.0.LATEST"}]}]}')
         write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT From_Package__c FROM Account];\n}\n")
         ctx = self.run_preflight()
         signal = next(s for s in ctx["signals"] if s["rule"] == "reference-not-in-source")
-        self.assertEqual((signal["severity"], signal["dependencies"]), ("low", ["shared-base"]))
+        self.assertEqual((signal["severity"], signal["dependencies"]), ("medium", ["shared-base"]))
+
+    def test_a_package_name_the_base_branch_already_uses_stays_low(self):
+        git(self.repo, "switch", "-q", "main")
+        write(self.repo, "sfdx-project.json", '{"packageDirectories": [{"path": "force-app", "dependencies": '
+                                              '[{"package": "shared-base", "versionNumber": "1.0.0.LATEST"}]}]}')
+        write(self.repo, f"{D}/classes/Old.cls", "public class Old {\n  Object a = [SELECT From_Package__c FROM Account];\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "base uses the package field")
+        git(self.repo, "switch", "-q", "-c", "change2")
+        write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT From_Package__c FROM Account];\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        ctx = pf.build(self.repo, "main", "change2")
+        signal = next(s for s in ctx["signals"] if s["rule"] == "reference-not-in-source")
+        self.assertEqual(signal["severity"], "low")
+        self.assertIn("usedBefore", signal)
+        self.assertNotIn("dependencies", signal)
 
     def test_a_deleted_class_named_in_a_changelog_is_not_still_referenced(self):
         git(self.repo, "switch", "-q", "main")
@@ -240,6 +259,50 @@ class Preflight(unittest.TestCase):
         self.assertEqual(counts[None]["signals_total"], "2")
         self.assertEqual(counts["low"]["signals"], "2")
         self.assertEqual(counts["high"]["signals"], "0")
+
+    def config_on_main(self, text):
+        git(self.repo, "switch", "-q", "main")
+        write(self.repo, ".github/deploy-doctor.json", text)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "config")
+        git(self.repo, "switch", "-q", "-c", "change2")
+
+    def test_known_references_from_the_base_branch_are_low(self):
+        self.config_on_main('{"preflight": {"knownReferences": ["Account.Legacy_*", "Hand_Made__c"]}}')
+        write(self.repo, f"{D}/classes/Score.cls",
+              "public class Score {\n  Object a = [SELECT Legacy_Code__c, Hand_Made__c, Typo__c FROM Account];\n}\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        ctx = pf.build(self.repo, "main", "change2")
+        found = {s["why"].split("`")[1].rpartition(".")[2]: s for s in ctx["signals"] if s["rule"] == "reference-not-in-source"}
+        self.assertEqual({k: v["severity"] for k, v in found.items()},
+                         {"Legacy_Code__c": "low", "Hand_Made__c": "low", "Typo__c": "high"})
+        self.assertEqual(found["Legacy_Code__c"]["knownReference"], "Account.Legacy_*")
+
+    def test_a_pull_request_cannot_silence_itself(self):
+        write(self.repo, ".github/deploy-doctor.json", '{"preflight": {"knownReferences": ["*"], "minSeverity": "high"}}')
+        write(self.repo, f"{D}/classes/Score.cls", "public class Score {\n  Object a = [SELECT Typo__c FROM Account];\n}\n")
+        ctx = self.run_preflight()
+        signal = next(s for s in ctx["signals"] if s["rule"] == "reference-not-in-source")
+        self.assertEqual(signal["severity"], "high")
+        self.assertIsNone(ctx["config"]["minSeverity"])
+
+    def test_threshold_from_the_configuration_and_the_flag_wins(self):
+        self.config_on_main('{"preflight": {"minSeverity": "low"}}')
+        write(self.repo, f"{D}/profiles/Admin.profile-meta.xml", "<Profile>\n</Profile>\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "change")
+        git(self.repo, "switch", "-q", "main")
+        script, counts = str(ROOT / "doctor" / "preflight_context.py"), {}
+        for level in (None, "high"):
+            out, github = Path(self.tmp.name) / "pf.json", Path(self.tmp.name) / f"cfg-{level}"
+            subprocess.run([sys.executable, script, "--repo-dir", str(self.repo), "--base", "main", "--head", "change2",
+                            "--out", str(out)] + (["--min-severity", level] if level else []),
+                           check=True, capture_output=True, env={"GITHUB_OUTPUT": str(github), "PATH": __import__("os").environ["PATH"]})
+            counts[level] = dict(l.split("=") for l in github.read_text().splitlines())["signals"]
+            self.assertNotIn("config", json.loads(out.read_text()))
+        self.assertEqual(counts, {None: "1", "high": "0"})
 
     def test_component_of(self):
         self.assertEqual(pf.component_of(f"{D}/classes/Score.cls-meta.xml"), {"type": "ApexClass", "name": "Score"})
